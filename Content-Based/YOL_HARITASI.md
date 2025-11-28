@@ -346,11 +346,315 @@ Kavramları anladığını test et:
 
 ---
 
+## 🎯 BÖLÜM 7: GELİŞMİŞ - USER PROFILE YAKLAŞIMI (Opsiyonel)
+
+### 7.1 User Profile Nedir?
+
+Standart Content-Based'de:
+- Kullanıcı bir film seçer → O filme benzer filmler önerilir
+
+**User Profile yaklaşımında:**
+- Kullanıcının **tüm sevdiği filmlerin** TF-IDF vektörleri birleştirilir
+- Ortaya bir "**kullanıcı içerik profili**" çıkar
+- Bu profil ile tüm filmlerin benzerliği hesaplanır
+
+### 7.2 Neden User Profile?
+
+| Standart Yaklaşım | User Profile Yaklaşımı |
+|-------------------|------------------------|
+| "Inception'a benzer filmler" | "Senin zevkine benzer filmler" |
+| Tek filme odaklanır | Tüm izleme geçmişini değerlendirir |
+| Anlık öneri | Kümülatif profil |
+
+### 7.3 User Profile Nasıl Oluşturulur?
+
+#### Yöntem 1: Basit Ortalama
+
+Kullanıcının sevdiği filmlerin TF-IDF vektörlerinin ortalaması:
+
+```
+user_profile = mean(tfidf_vectors[liked_movies])
+```
+
+**Örnek:**
+```
+Kullanıcı şunları sevdi:
+- Inception:    [0.5, 0.3, 0.0, 0.8]
+- Interstellar: [0.4, 0.4, 0.1, 0.7]
+- The Matrix:   [0.6, 0.2, 0.0, 0.9]
+
+User Profile = [(0.5+0.4+0.6)/3, (0.3+0.4+0.2)/3, (0.0+0.1+0.0)/3, (0.8+0.7+0.9)/3]
+             = [0.50, 0.30, 0.03, 0.80]
+```
+
+#### Yöntem 2: Rating Ağırlıklı Ortalama (Daha İyi!)
+
+Kullanıcının verdiği puana göre ağırlıklandırma:
+
+```
+user_profile = weighted_mean(tfidf_vectors[liked_movies], weights=ratings)
+```
+
+**Formül:**
+```
+user_profile = Σ(rating_i × tfidf_vector_i) / Σ(rating_i)
+```
+
+**Örnek:**
+```
+Kullanıcının puanları:
+- Inception:    5.0 puan → [0.5, 0.3, 0.0, 0.8]
+- Interstellar: 4.0 puan → [0.4, 0.4, 0.1, 0.7]
+- The Matrix:   3.0 puan → [0.6, 0.2, 0.0, 0.9]
+
+Toplam ağırlık = 5 + 4 + 3 = 12
+
+User Profile = (5×[0.5,0.3,0.0,0.8] + 4×[0.4,0.4,0.1,0.7] + 3×[0.6,0.2,0.0,0.9]) / 12
+
+Hesaplama:
+- Boyut 1: (5×0.5 + 4×0.4 + 3×0.6) / 12 = (2.5 + 1.6 + 1.8) / 12 = 0.49
+- Boyut 2: (5×0.3 + 4×0.4 + 3×0.2) / 12 = (1.5 + 1.6 + 0.6) / 12 = 0.31
+- Boyut 3: (5×0.0 + 4×0.1 + 3×0.0) / 12 = (0.0 + 0.4 + 0.0) / 12 = 0.03
+- Boyut 4: (5×0.8 + 4×0.7 + 3×0.9) / 12 = (4.0 + 2.8 + 2.7) / 12 = 0.79
+
+User Profile = [0.49, 0.31, 0.03, 0.79]
+```
+
+**Fark:** Yüksek puan verilen filmler profile daha çok katkı sağlar!
+
+### 7.4 User Profile ile Öneri
+
+1. User profile vektörünü oluştur
+2. Tüm filmlerle cosine similarity hesapla
+3. İzlenmiş filmleri çıkar
+4. En yüksek benzerliğe sahip filmleri öner
+
+```python
+# Pseudo kod
+user_profile = compute_user_profile(liked_movies, ratings, tfidf_matrix)
+similarities = cosine_similarity([user_profile], tfidf_matrix)[0]
+recommendations = get_top_n(similarities, exclude=liked_movies, n=10)
+```
+
+### 7.5 Görsel Karşılaştırma
+
+```
+STANDART YAKLAŞIM:
+                    Inception ←→ Film X (benzerlik hesapla)
+                              ←→ Film Y
+                              ←→ Film Z
+
+USER PROFILE YAKLAŞIMI:
+    Inception  ─┐
+    Interstellar ─┼→ [USER PROFILE] ←→ Film X (benzerlik hesapla)
+    The Matrix ─┘                   ←→ Film Y
+                                    ←→ Film Z
+```
+
+### 7.6 Avantajlar ve Dezavantajlar
+
+#### ✅ Avantajlar
+1. **Daha Kişisel:** Tüm izleme geçmişini değerlendirir
+2. **Rating Duyarlı:** Çok sevilen filmler daha etkili
+3. **Tutarlı Öneriler:** Anlık değil, kümülatif tercih yansıtır
+4. **Çeşitlilik:** Farklı türlerden sevilen filmler profilde dengelenir
+
+#### ❌ Dezavantajlar
+1. **Hesaplama Maliyeti:** Her kullanıcı için ayrı profil
+2. **Profil Güncellemesi:** Yeni film eklendikçe güncellenmeli
+3. **Başlangıç Sorunu:** Az film izlemiş kullanıcıda zayıf profil
+
+### 7.7 Kod Yapısı (Uygulama İçin Rehber)
+
+```python
+def build_user_profile(
+    liked_movie_ids: list[int],
+    ratings: list[float] | None,  # None ise basit ortalama
+    tfidf_matrix: sparse_matrix,
+    movie_id_to_idx: dict
+) -> np.ndarray:
+    """
+    Kullanıcı içerik profili oluşturur.
+    
+    Args:
+        liked_movie_ids: Beğenilen film ID'leri
+        ratings: Her film için kullanıcı puanı (opsiyonel)
+        tfidf_matrix: Tüm filmlerin TF-IDF matrisi
+        movie_id_to_idx: movie_id → matris index eşlemesi
+    
+    Returns:
+        user_profile: (n_features,) boyutunda vektör
+    """
+    # 1. Beğenilen filmlerin TF-IDF vektörlerini al
+    indices = [movie_id_to_idx[mid] for mid in liked_movie_ids]
+    vectors = tfidf_matrix[indices].toarray()
+    
+    # 2. Ağırlıklı ortalama hesapla
+    if ratings is None:
+        # Basit ortalama
+        user_profile = vectors.mean(axis=0)
+    else:
+        # Rating ağırlıklı ortalama
+        weights = np.array(ratings).reshape(-1, 1)
+        user_profile = (vectors * weights).sum(axis=0) / weights.sum()
+    
+    return user_profile
+
+
+def recommend_with_user_profile(
+    user_profile: np.ndarray,
+    tfidf_matrix: sparse_matrix,
+    exclude_ids: list[int],
+    top_n: int = 10
+) -> pd.DataFrame:
+    """
+    User profile ile öneri üret.
+    """
+    # Tüm filmlerle benzerlik
+    similarities = cosine_similarity([user_profile], tfidf_matrix)[0]
+    
+    # İzlenmiş filmleri çıkar ve sırala
+    # ...
+    
+    return recommendations
+```
+
+### 7.8 Uygulama Seçenekleri
+
+Bu proje için iki seçenek var:
+
+| Seçenek | Açıklama | Karmaşıklık |
+|---------|----------|-------------|
+| **A) Basit** | Sadece film-film benzerliği (standart) | ⭐ |
+| **B) Gelişmiş** | User Profile + rating ağırlıklı | ⭐⭐⭐ |
+
+**Önerim:** Önce **Seçenek A**'yı tamamla, çalıştıktan sonra **Seçenek B**'yi ekle.
+
+---
+
+## 📈 BÖLÜM 8: DEĞERLENDİRME (Model Testi)
+
+### 8.1 Neden Değerlendirme?
+
+Model öneri üretiyor ama öneriler gerçekten iyi mi? Bunu ölçmek için basit bir test yapabiliriz.
+
+### 8.2 Test Yaklaşımı: Leave-One-Out
+
+`ratings_small.csv` dosyasını kullanarak kabaca test edebilirsin:
+
+```
+1. Bir kullanıcı seç (örn: userId = 42)
+2. Bu kullanıcının sevdiği filmlerden BİRİNİ GİZLE
+3. Kalan filmlerle Content-Based öneri üret
+4. Gizlediğin film, öneri listesinde var mı?
+```
+
+**Görsel:**
+```
+Kullanıcı 42'nin sevdiği filmler:
+[Inception, Interstellar, The Matrix, Fight Club, Memento]
+         ↓
+Gizle: "The Matrix"
+         ↓
+Kalan filmlerle öneri üret: [Inception, Interstellar, Fight Club, Memento]
+         ↓
+Öneriler: [Dark Knight, Prestige, THE MATRIX, Shutter Island, ...]
+                                    ↑
+                            GİZLENEN FİLM BULUNDU! ✅
+```
+
+### 8.3 Temel Metrik: Hit Rate@N
+
+**Hit Rate@N:** Gizlenen film, önerilen ilk N film içinde mi?
+
+```
+Hit@10 = Gizlenen film top-10'da mı? (1 veya 0)
+```
+
+**Birden fazla kullanıcı için:**
+```
+Hit Rate@10 = (Hit olan kullanıcı sayısı) / (Toplam test kullanıcısı)
+```
+
+**Örnek:**
+```
+100 kullanıcı test edildi
+72 kullanıcıda gizlenen film top-10'da çıktı
+
+Hit Rate@10 = 72 / 100 = 0.72 = %72
+```
+
+### 8.4 Basit Değerlendirme Kodu (Pseudo)
+
+```python
+def evaluate_content_based(ratings_df, tfidf_matrix, n_users=100, top_n=10):
+    """
+    Content-Based modeli için Hit Rate@N hesapla.
+    """
+    hits = 0
+    tested = 0
+    
+    # Rastgele kullanıcılar seç
+    users = ratings_df['userId'].unique()
+    sample_users = random.sample(list(users), min(n_users, len(users)))
+    
+    for user_id in sample_users:
+        # Kullanıcının sevdiği filmler (rating >= 4)
+        liked = ratings_df[
+            (ratings_df['userId'] == user_id) & 
+            (ratings_df['rating'] >= 4)
+        ]['movieId'].tolist()
+        
+        if len(liked) < 3:  # En az 3 film olmalı
+            continue
+        
+        # Rastgele bir filmi gizle
+        hidden_movie = random.choice(liked)
+        remaining = [m for m in liked if m != hidden_movie]
+        
+        # Kalan filmlerle öneri üret
+        recommendations = recommend_content_based(remaining, top_n=top_n)
+        recommended_ids = recommendations['movieId'].tolist()
+        
+        # Gizlenen film önerilerde var mı?
+        if hidden_movie in recommended_ids:
+            hits += 1
+        
+        tested += 1
+    
+    hit_rate = hits / tested if tested > 0 else 0
+    return hit_rate, hits, tested
+```
+
+### 8.5 Yorumlama
+
+| Hit Rate@10 | Yorum |
+|-------------|-------|
+| > 0.50 | İyi performans |
+| 0.30 - 0.50 | Kabul edilebilir |
+| < 0.30 | İyileştirme gerekli |
+
+**Not:** Bu basit bir değerlendirme. Gerçek projelerde daha sofistike metrikler kullanılır (NDCG, MAP, Precision@K, Recall@K).
+
+### 8.6 Diğer Basit Metrikler (Opsiyonel)
+
+| Metrik | Açıklama |
+|--------|----------|
+| **MRR** (Mean Reciprocal Rank) | Gizlenen film kaçıncı sırada? (1/rank) |
+| **Coverage** | Öneri sisteminin kaç farklı film önerdiği |
+| **Diversity** | Önerilen filmlerin birbirine ne kadar farklı olduğu |
+
+---
+
 ## 🚀 SONRAKİ ADIM
 
 Bu dokümanı anladıktan sonra:
-1. `movies_metadata.csv` dosyasını `data/raw/` klasörüne koy
+1. Veri zaten `Content-Based/` klasöründe ✅
 2. Kod yazmaya başla (`src/recommender_content.py`)
+
+**Uygulama Sırası:**
+1. Önce standart Content-Based'i tamamla
+2. Çalıştıktan sonra User Profile özelliğini ekle
 
 Hazır olduğunda haber ver! 🎬
 
