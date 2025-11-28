@@ -1,4 +1,7 @@
 data/raw/*.csv
+data/*.csv
+data/content-based/*.csv
+Content-Based/*.csv
 
 .DS_Store
 **/.DS_Store
