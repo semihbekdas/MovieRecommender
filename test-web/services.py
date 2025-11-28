@@ -70,6 +70,22 @@ class TitleOption:
     year: str | None = None
 
 
+@dataclass
+class MetadataStats:
+    total_titles: int
+    non_empty_overview: int
+    distinct_genres: int
+
+
+@dataclass
+class RatingStats:
+    path: Path
+    total_rows: int
+    unique_users: int
+    unique_movies: int
+    avg_ratings_per_user: float
+
+
 def _describe_file(label: str, path: Path) -> FileStatus:
     if not path.exists():
         return FileStatus(label=label, path=path, exists=False)
@@ -195,6 +211,41 @@ def get_metadata_preview(limit: int = 20) -> pd.DataFrame | None:
     ]
     available_cols = [c for c in columns if c in bundle.metadata.columns]
     return bundle.metadata[available_cols].head(limit)
+
+
+def get_metadata_stats() -> MetadataStats:
+    bundle = load_bundle()
+    metadata = bundle.metadata
+    total_titles = len(metadata)
+    overview_series = metadata["overview"] if "overview" in metadata else pd.Series(dtype=str)
+    non_empty_overview = overview_series.fillna("").astype(str).str.strip().ne("").sum()
+    genres_series = metadata["genres"] if "genres" in metadata else pd.Series(dtype=str)
+    genres_col = genres_series.dropna().astype(str)
+    distinct_genres = (
+        genres_col.str.split(",").explode().str.strip().replace("", pd.NA).dropna().nunique()
+    )
+    return MetadataStats(
+        total_titles=int(total_titles),
+        non_empty_overview=int(non_empty_overview),
+        distinct_genres=int(distinct_genres),
+    )
+
+
+@lru_cache(maxsize=2)
+def get_rating_stats(path: str) -> RatingStats:
+    ratings_path = Path(path)
+    df = ec.load_ratings(ratings_path)
+    unique_users = df["userId"].nunique()
+    unique_movies = df["movieId"].nunique()
+    total_rows = len(df)
+    avg = total_rows / unique_users if unique_users else 0.0
+    return RatingStats(
+        path=ratings_path,
+        total_rows=int(total_rows),
+        unique_users=int(unique_users),
+        unique_movies=int(unique_movies),
+        avg_ratings_per_user=float(avg),
+    )
 
 
 def evaluate_model(

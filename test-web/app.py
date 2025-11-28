@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,8 @@ from services import (
     evaluate_model,
     get_bundle_summary,
     get_metadata_preview,
+    get_metadata_stats,
+    get_rating_stats,
     get_title_options,
     make_recommendations,
 )
@@ -33,6 +36,18 @@ METHOD_LABELS = {
 MODE_LABELS = {
     "standard": "standard · Çoklu film benzerliği",
     "profile": "profile · Kullanıcı profil vektörü",
+}
+
+DEFAULT_EVAL_INPUTS = {
+    "ratings_path": str(DEFAULT_RATINGS_PATH),
+    "links_path": str(DEFAULT_LINKS_PATH),
+    "n_users": 50,
+    "top_n": 10,
+    "mode": "standard",
+    "rating_threshold": 4.0,
+    "min_liked": 3,
+    "method": "score_avg",
+    "seed": 42,
 }
 
 EVALUATION_HELP_MD = """
@@ -432,8 +447,18 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
 
     samples = response.samples or []
     if samples:
+        payload = st.session_state.get("last_eval_payload")
+        seed = None
+        if payload and "inputs" in payload:
+            seed = payload["inputs"].get("seed")
+        rng = random.Random(seed)
+        hit_samples = [s for s in samples if s.get("hit")]
+        non_hit_samples = [s for s in samples if not s.get("hit")]
+        rng.shuffle(non_hit_samples)
+        ordered_samples = hit_samples + non_hit_samples
+
         st.markdown("**Örnek Kullanıcılar**")
-        df = pd.DataFrame(samples)
+        df = pd.DataFrame(ordered_samples)
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("Örnek kullanıcı verisi bulunamadı.")
@@ -457,14 +482,59 @@ def render_share_section() -> None:
     )
 
 
+def render_selection_logic_banner() -> None:
+    payload = st.session_state.get("last_eval_payload")
+    if payload and "inputs" in payload:
+        inputs = payload["inputs"]
+    else:
+        inputs = DEFAULT_EVAL_INPUTS
+    st.info(
+        "Kullanıcı seçme akışı: ratings_small.csv içindeki kullanıcılardan "
+        f"`rating >= {inputs['rating_threshold']}` koşulunu sağlayan ve en az "
+        f"{inputs['min_liked']} favori filme sahip olanlar filtrelenir. "
+        f"Rastgele {inputs['n_users']} kullanıcı seçilip her biri için bir film gizlenir; "
+        f"gizlenen film öneri listesinde Top-{inputs['top_n']} içinde yer alırsa hit sayılır "
+        f"(`mode={inputs['mode']}`, `method={inputs['method']}`, `seed={inputs['seed']}`)."
+    )
+
+
+def render_global_stats() -> None:
+    st.subheader("Veri Özeti")
+    meta_col1, meta_col2, meta_col3 = st.columns(3)
+    try:
+        meta_stats = get_metadata_stats()
+        meta_col1.metric("Metadata Film Sayısı", f"{meta_stats.total_titles:,}")
+        meta_col2.metric("Özet İçeren Film", f"{meta_stats.non_empty_overview:,}")
+        meta_col3.metric("Benzersiz Tür Sayısı", f"{meta_stats.distinct_genres:,}")
+    except Exception as exc:  # pragma: no cover - görsel uyarı
+        st.warning(f"Metadata istatistikleri alınamadı: {exc}")
+
+    ratings_path = Path(st.session_state.get("ratings_path", str(DEFAULT_RATINGS_PATH)))
+    rat_col1, rat_col2, rat_col3 = st.columns(3)
+    try:
+        stats = get_rating_stats(str(ratings_path))
+        rat_col1.metric("Ratings Satırı", f"{stats.total_rows:,}")
+        rat_col2.metric("Benzersiz Kullanıcı", f"{stats.unique_users:,}")
+        rat_col3.metric("Benzersiz Film", f"{stats.unique_movies:,}")
+        st.caption(
+            f"Kaynak: {stats.path} · Kullanıcı başına ortalama {stats.avg_ratings_per_user:.2f} puan."
+        )
+    except Exception as exc:  # pragma: no cover - görsel uyarı
+        st.warning(f"Ratings istatistikleri alınamadı ({ratings_path}): {exc}")
+
+
 def main() -> None:
     st.set_page_config(page_title="Content-Based Test Paneli", layout="wide")
     st.title("Content-Based Modelleri Test Paneli")
 
     if "reload_counter" not in st.session_state:
         st.session_state["reload_counter"] = 0
+    st.session_state.setdefault("ratings_path", str(DEFAULT_RATINGS_PATH))
+    st.session_state.setdefault("links_path", str(DEFAULT_LINKS_PATH))
 
     summary, top_n, method = render_sidebar()
+    render_selection_logic_banner()
+    render_global_stats()
 
     tab_manual, tab_inspect, tab_eval = st.tabs(
         ["Manuel Öneri", "Model İncelemesi", "Değerlendirme Senaryosu"]

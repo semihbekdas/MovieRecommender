@@ -44,6 +44,7 @@ Arayüz tarayıcıda açıldıktan sonra üç ana sekme göreceksiniz:
 - `ratings_small.csv` ve `links_small.csv` yollarını güncelleyerek farklı veri kümelerini test edin.
 - Örnek kullanıcı sonuçları tablo halinde listelenir.
 - Formun altında yer alan **İnput/Output Paylaşımı** bölümünden, kullandığınız parametreleri ve çıkan sonuçları JSON olarak indirip paylaşabilirsiniz.
+- Sekmelerin üzerinde yer alan **Veri Özeti** paneli metadata ve ratings dosyalarındaki toplam film/kullanıcı sayılarını sürekli gösterir. Hemen altındaki bilgi kutusu ise kullanıcı seçim mantığını (rating eşiği, minimum beğeni, örneklenen kullanıcı sayısı vb.) özetler.
 
 ## Sorun Giderme
 
