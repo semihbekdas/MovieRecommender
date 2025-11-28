@@ -3,6 +3,9 @@ data/*.csv
 data/content-based/*.csv
 Content-Based/*.csv
 
+# Content-Based artefaktları
+Content-Based/models/
+
 .DS_Store
 **/.DS_Store
 

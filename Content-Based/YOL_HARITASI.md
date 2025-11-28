@@ -307,6 +307,40 @@ MovieRecommender/
     └── Home_🎬_Recommender.py     ← Güncellenecek
 ```
 
+### 5.1 API Referansı (Hızlı Bakış)
+
+- **`Content-Based/data_pipeline.py`**
+  - `parse_args()` → CLI parametrelerini (kaynak dosya, ngram ayarları, `--rebuild`) okur.
+  - `run_pipeline(args)` → metadata temizliği + TF-IDF eğitimi + artefakt kaydı (`models/`).
+- **`Content-Based/recommender_content.py`**
+  - `load_artifacts(force_reload=False)` → TF-IDF matrisini ve metadata'yı cache'ler.
+  - `titles_to_ids(titles, bundle)` → Başlıkları TMDB id listesine çevirir.
+  - `recommend_single(movie_id, top_n, method)` / `recommend_multi(movie_ids, top_n, method)` → Standart öneriler.
+  - `cli_recommend(titles, top_n, method)` → CLI çıktısını DataFrame olarak döndürür.
+- **`Content-Based/user_profile.py`**
+  - `build_user_profile(movie_ids, ratings=None)` → TF-IDF vektörlerinin (opsiyonel rating ağırlıklı) normalize ortalaması.
+  - `recommend_with_profile(titles, ratings=None, top_n=10)` → Profil tabanlı öneri + fallback.
+- **`Content-Based/evaluate_content.py`**
+  - `evaluate(ratings_path, links_path, n_users, top_n, mode, rating_threshold, ...)` → HitRate@N çıktısı.
+
+### 5.2 CLI Komutları
+
+Planlanan akış şu komutlarla uçtan uca denenebilir:
+
+```bash
+# Artefaktları yeniden üret
+python3 Content-Based/data_pipeline.py --rebuild
+
+# Standart içerik tabanlı öneri
+python3 Content-Based/recommender_content.py --titles "Inception,Interstellar" --top-n 5
+
+# User profile yaklaşımı
+python3 Content-Based/user_profile.py --titles "Inception,Interstellar,The Matrix" --ratings "5,4.5,4"
+
+# HitRate@N değerlendirmesi
+python3 Content-Based/evaluate_content.py --n-users 100 --top-n 10 --mode profile
+```
+
 ---
 
 ## 📖 BÖLÜM 6: TEMEL KAVRAMLAR SÖZLÜĞÜ
