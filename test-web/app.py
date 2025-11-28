@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +12,13 @@ from services import (
     EvaluationResponse,
     FileStatus,
     RecommendationResponse,
+    TitleOption,
     DEFAULT_LINKS_PATH,
     DEFAULT_RATINGS_PATH,
     evaluate_model,
     get_bundle_summary,
     get_metadata_preview,
+    get_title_options,
     make_recommendations,
 )
 
@@ -33,6 +34,39 @@ MODE_LABELS = {
     "profile": "profile · Kullanıcı profil vektörü",
 }
 
+EVALUATION_HELP_MD = """
+**Amaç**
+- MovieLens kullanıcılarından örnekler alır, her kullanıcının çok beğendiği filmlerden birini gizleyip modelin bu filmi Top-N içinde yakalayıp yakalayamadığını ölçer.
+
+**Girdi Dosyaları**
+- `ratings_small.csv`: Kullanıcı-film-puan satırları (`data/ratings_small.csv` varsayılan).
+- `links_small.csv`: `movieId` → `tmdbId` eşleşmeleri (`data/links_small.csv` varsayılan).
+
+**Parametrelerin Etkisi**
+- `Test edilecek kullanıcı sayısı`: Daha yüksek değer daha uzun ama daha güvenilir sonuç verir.
+- `HitRate @`: Gizlenen filmin öneri listesinde aranacağı üst sınır.
+- `Değerlendirme modu`: `standard` → `recommender_content.recommend_multi`; `profile` → `user_profile.build_user_profile`.
+- `Beğeni eşiği` ve `Min. beğenilen film`: Kullanıcının değerlendirmeye alınması için gereken şartlar.
+- `Çoklu film yöntemi`: `score_avg` skor ortalaması; `vector_avg` TF-IDF vektör ortalaması (yalnızca `standard` modda anlamlı).
+- `Rastgelelik tohumu`: Aynı kullanıcı örneklemesini tekrar üretir.
+
+**Çalışma Adımları**
+1. Dosyalar okunur ve MovieLens → TMDB eşleşmeleri hazırlanır.
+2. Şartları sağlayan kullanıcılar arasından rastgele seçim yapılır.
+3. Her kullanıcı için beğenilen filmlerden biri gizlenir, kalanlarla öneri listesi üretilir.
+4. Gizlenen film Top-N içinde ise “hit” sayılır.
+
+**Çıktılar**
+- `HitRate@N`: `hits/tested` oranı; progress bar ve metrik olarak gösterilir.
+- `Başarılı kullanıcı / Test edilen kullanıcı`: Toplam hit sayısı ve değerlendirilen kullanıcı adedi.
+- `Örnek Kullanıcılar` tablosu: İlk 10 kullanıcının `userId`, gizlenen film adı/ID’si, hit durumu, rank ve gerçek rating bilgisi.
+
+**Nasıl Yorumlanır?**
+- Yüksek HitRate, modelin sevilen filmleri üst sıralara getirdiğini gösterir.
+- Hiç kullanıcı test edilemiyorsa threshold/min_liked değerleri fazla sıkı olabilir.
+- `rank` değerleri düşükse (1-3) model gizlenen filmi üst sıralarda konumlandırıyor demektir.
+"""
+
 
 @st.cache_resource(show_spinner=False)
 def warmup_bundle(reload_token: int) -> Any:
@@ -45,9 +79,12 @@ def cached_metadata_preview(limit: int = 25) -> pd.DataFrame | None:
     return get_metadata_preview(limit)
 
 
-def parse_title_input(raw_text: str) -> list[str]:
-    tokens = re.split(r"[,;\n]+", raw_text)
-    return [token.strip() for token in tokens if token.strip()]
+@st.cache_data(show_spinner=False)
+def cached_title_options(limit: int = 5000) -> tuple[list[str], dict[str, TitleOption]]:
+    options = get_title_options(limit=limit)
+    label_map = {opt.label: opt for opt in options}
+    labels = list(label_map.keys())
+    return labels, label_map
 
 
 def relative_path(path: Path) -> str:
@@ -86,12 +123,24 @@ def render_sidebar() -> tuple[BundleSummary, int, str]:
         render_file_status_table(summary.files)
 
         st.header("Genel Ayarlar")
-        top_n = st.slider("Top-N öneri", min_value=5, max_value=50, value=10, step=1)
+        top_n = st.slider(
+            "Top-N öneri",
+            min_value=5,
+            max_value=50,
+            value=10,
+            step=1,
+            help="Öneri tablosunda kaç filmi görmek istediğinizi belirtir.",
+        )
         method = st.radio(
             "Çoklu film yöntemi",
             options=list(METHOD_LABELS.keys()),
+            help=(
+                "score_avg: seçilen her film için skor hesaplayıp ortalamasını alır. "
+                "vector_avg: TF-IDF vektörlerinin ortalaması ile tek profil oluşturur."
+            ),
             format_func=lambda key: METHOD_LABELS[key],
         )
+        st.caption("i) Ayarlar tüm sekmeleri etkiler; değişiklikten sonra manuel öneriyi tekrar çalıştırın.")
     return summary, top_n, method
 
 
@@ -99,6 +148,7 @@ def render_file_status_table(files: list[FileStatus]) -> None:
     if not files:
         st.info("Dosya bilgisi bulunamadı.")
         return
+    st.caption("i) Bu tablo Content-Based modellerinin ihtiyaç duyduğu artefaktların mevcut durumunu gösterir.")
     rows = []
     for status in files:
         rows.append(
@@ -118,15 +168,40 @@ def render_file_status_table(files: list[FileStatus]) -> None:
 
 def render_manual_tab(top_n: int, method: str) -> None:
     st.subheader("Manuel Öneri")
-    st.caption("Film adlarını virgül, noktalı virgül veya satır sonu ile ayırabilirsiniz.")
-    default_titles = st.session_state.get("last_title_input", "The Matrix, Toy Story")
+    st.caption("i) Film listesinden beğendiğiniz başlıkları arayarak seçin, ardından önerileri çalıştırın.")
+    labels, label_map = cached_title_options()
+
+    if not labels:
+        st.error("Seçilebilir film listesi oluşturulamadı. Artefaktları kontrol edin.")
+        return
+
+    default_labels = [
+        label
+        for label in st.session_state.get("selected_title_labels", [])
+        if label in label_map
+    ]
+
     with st.form("manual-form"):
-        raw_titles = st.text_area("Film listesi", value=default_titles, height=110)
+        selected_labels = st.multiselect(
+            "Film arama ve seçim",
+            options=labels,
+            default=default_labels,
+            placeholder="Film adı yazmaya başlayın...",
+            help=(
+                "Liste metadata setinden öne çıkan filmleri içerir. "
+                "Arama kutusuna yazdığınız anda sonuçlar filtrelenir."
+            ),
+        )
+        st.caption("i) Aynı başlığı tekrar seçmenize gerek yok; seçim kutusu otomatik olarak kontrol eder.")
         submitted = st.form_submit_button("Önerileri Çalıştır", use_container_width=True)
 
+    st.session_state["selected_title_labels"] = selected_labels
+
     if submitted:
-        st.session_state["last_title_input"] = raw_titles
-        titles = parse_title_input(raw_titles)
+        titles = [label_map[label].title for label in selected_labels]
+        if not titles:
+            st.warning("Önce en az bir film seçmelisiniz.")
+            return
         with st.spinner("Benzerlik skorları hesaplanıyor..."):
             response = make_recommendations(titles, top_n=top_n, method=method)
         render_recommendation_response(response)
@@ -136,7 +211,7 @@ def render_manual_tab(top_n: int, method: str) -> None:
             st.info("Son çalıştırılan öneriler aşağıda görüntüleniyor.")
             display_recommendation_table(cached)
         else:
-            st.info("Henüz bir öneri çalıştırılmadı.")
+            st.info("Seçim yaptıktan sonra 'Önerileri Çalıştır' butonuna basın.")
 
 
 def render_recommendation_response(response: RecommendationResponse) -> None:
@@ -203,31 +278,85 @@ def render_inspection_tab() -> None:
 
 def render_evaluation_tab(default_method: str, default_top_n: int) -> None:
     st.subheader("Değerlendirme Senaryosu")
+    st.caption("i) HitRate@N metriği ile gizlenen filmlerin öneri listesinde yer alıp almadığını ölçer.")
+    with st.expander("Bu sekme nasıl çalışıyor?", expanded=False):
+        st.markdown(EVALUATION_HELP_MD)
+
     default_ratings = st.session_state.get("ratings_path", str(DEFAULT_RATINGS_PATH))
     default_links = st.session_state.get("links_path", str(DEFAULT_LINKS_PATH))
 
     with st.form("evaluation-form"):
-        ratings_path = st.text_input("ratings_small.csv yolu", value=default_ratings)
-        links_path = st.text_input("links_small.csv yolu", value=default_links)
-        n_users = st.slider("Test edilecek kullanıcı sayısı", 10, 200, 50, step=10)
-        eval_top_n = st.slider("HitRate @", 5, 30, default_top_n, key="eval-topn")
+        ratings_path = st.text_input(
+            "ratings_small.csv yolu",
+            value=default_ratings,
+            help="Kullanıcı-film puanlamalarını içeren CSV. MovieLens örneği data/ratings_small.csv."
+        )
+        links_path = st.text_input(
+            "links_small.csv yolu",
+            value=default_links,
+            help="MovieLens movieId değerlerini TMDB kimliklerine eşleyen CSV."
+        )
+        n_users = st.slider(
+            "Test edilecek kullanıcı sayısı",
+            10,
+            200,
+            50,
+            step=10,
+            help="Rastgele seçilecek kullanıcı sayısı; daha yüksek değer daha uzun sürer."
+        )
+        eval_top_n = st.slider(
+            "HitRate @",
+            5,
+            30,
+            default_top_n,
+            key="eval-topn",
+            help="Kullanıcının gizlenen filmi öneri listesinde ilk N içinde yakalanırsa 'hit' sayılır."
+        )
         mode = st.radio(
             "Değerlendirme modu",
             options=list(MODE_LABELS.keys()),
             index=0,
+            help=(
+                "standard: seçilen filmlerle rc.recommend_multi çalışır. "
+                "profile: user_profile ile ağırlıklı kullanıcı vektörü oluşturur."
+            ),
             format_func=lambda key: MODE_LABELS[key],
         )
-        rating_threshold = st.slider("Beğeni eşiği", 3.0, 5.0, 4.0, step=0.5)
-        min_liked = st.number_input("Min. beğenilen film", min_value=2, max_value=20, value=3)
+        rating_threshold = st.slider(
+            "Beğeni eşiği",
+            3.0,
+            5.0,
+            4.0,
+            step=0.5,
+            help="Bu puanın üzerindeki filmler 'beğenilen' kabul edilip profil oluşturulur."
+        )
+        min_liked = st.number_input(
+            "Min. beğenilen film",
+            min_value=2,
+            max_value=20,
+            value=3,
+            help="Bir kullanıcının değerlendirilmeye girebilmesi için gereken minimum beğeni adedi."
+        )
         method = st.radio(
             "Çoklu film yöntemi",
             options=list(METHOD_LABELS.keys()),
             index=list(METHOD_LABELS.keys()).index(default_method),
             key="eval-method",
+            help="Değerlendirme standard moduna özel; manuel öneride kullanılan aynı mantık.",
             format_func=lambda key: METHOD_LABELS[key],
         )
-        seed = st.number_input("Rastgelelik tohumu", min_value=0, max_value=9999, value=42)
-        run_evaluation = st.form_submit_button("Değerlendirmeyi Başlat", use_container_width=True)
+        seed = st.number_input(
+            "Rastgelelik tohumu",
+            min_value=0,
+            max_value=9999,
+            value=42,
+            help="Aynı tohum aynı kullanıcı örneklemesiyle sonuçların tekrarlanmasını sağlar."
+        )
+        run_evaluation = st.form_submit_button(
+            "Değerlendirmeyi Başlat",
+            use_container_width=True,
+        )
+        st.caption("i) Bu buton evaluate_content.evaluate fonksiyonunu verilen parametrelerle çalıştırır.")
 
     if run_evaluation:
         st.session_state["ratings_path"] = ratings_path

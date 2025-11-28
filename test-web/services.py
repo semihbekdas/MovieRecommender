@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -15,8 +16,8 @@ CONTENT_BASED_DIR = PROJECT_ROOT / "Content-Based"
 if str(CONTENT_BASED_DIR) not in sys.path:
     sys.path.append(str(CONTENT_BASED_DIR))
 
-import evaluate_content as ec  # noqa: E402  (lazy path injection)
-import recommender_content as rc  # noqa: E402
+import evaluate_content as ec  # type: ignore  # noqa: E402  (lazy path injection)
+import recommender_content as rc  # type: ignore  # noqa: E402
 
 DEFAULT_RATINGS_PATH = ec.DEFAULT_RATINGS
 DEFAULT_LINKS_PATH = ec.DEFAULT_LINKS
@@ -58,6 +59,15 @@ class EvaluationResponse:
     tested: int | None
     samples: list[dict] | None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class TitleOption:
+    label: str
+    title: str
+    tmdb_id: int
+    vote_count: int | None = None
+    year: str | None = None
 
 
 def _describe_file(label: str, path: Path) -> FileStatus:
@@ -227,4 +237,50 @@ def evaluate_model(
         samples=result.get("samples", []),
         error=None,
     )
+
+
+def _extract_year(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value:
+        return value[:4]
+    return None
+
+
+@lru_cache(maxsize=4)
+def get_title_options(limit: int = 5000, min_vote_count: int = 20) -> tuple[TitleOption, ...]:
+    bundle = load_bundle()
+    metadata = bundle.metadata.copy()
+    if "vote_count" in metadata.columns:
+        metadata["vote_count"] = metadata["vote_count"].fillna(0).astype(int)
+    else:
+        metadata["vote_count"] = 0
+    if "release_date" in metadata.columns:
+        metadata["year"] = metadata["release_date"].apply(_extract_year)
+    else:
+        metadata["year"] = None
+
+    subset = (
+        metadata[["title", "tmdb_id", "vote_count", "year"]]
+        .dropna(subset=["title", "tmdb_id"])
+        .astype({"tmdb_id": int})
+    )
+    subset = subset[subset["vote_count"] >= min_vote_count]
+    subset = subset.sort_values("vote_count", ascending=False).head(limit)
+
+    options: list[TitleOption] = []
+    for _, row in subset.iterrows():
+        year = row.get("year")
+        year_part = f" ({year})" if isinstance(year, str) and year else ""
+        label = f"{row['title']}{year_part} · TMDB:{row['tmdb_id']}"
+        options.append(
+            TitleOption(
+                label=label,
+                title=str(row["title"]),
+                tmdb_id=int(row["tmdb_id"]),
+                vote_count=int(row.get("vote_count", 0)),
+                year=year if isinstance(year, str) else None,
+            )
+        )
+    return tuple(options)
 
