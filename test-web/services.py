@@ -4,9 +4,11 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
+import inspect
 from pathlib import Path
 from typing import Literal, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -18,9 +20,11 @@ if str(CONTENT_BASED_DIR) not in sys.path:
 
 import evaluate_content as ec  # type: ignore  # noqa: E402  (lazy path injection)
 import recommender_content as rc  # type: ignore  # noqa: E402
+import user_profile as up  # type: ignore  # noqa: E402
 
 DEFAULT_RATINGS_PATH = ec.DEFAULT_RATINGS
 DEFAULT_LINKS_PATH = ec.DEFAULT_LINKS
+_EVAL_HAS_RESTRICT = "restrict_to_links" in inspect.signature(ec.evaluate).parameters
 
 
 MethodLiteral = Literal["score_avg", "vector_avg"]
@@ -146,11 +150,44 @@ def load_bundle(force_reload: bool = False) -> rc.ArtifactBundle:
     return rc.load_artifacts(force_reload=force_reload)
 
 
+@lru_cache(maxsize=4)
+def get_movielens_tmdb_ids(path: str) -> set[int]:
+    links = ec.load_links(Path(path))
+    return set(links["tmdbId"].astype(int).tolist())
+
+
+def _apply_movielens_postprocessing(
+    df: pd.DataFrame | None,
+    allowed_ids: set[int] | None,
+) -> pd.DataFrame | None:
+    if df is None or df.empty:
+        return df
+    result = df
+    if allowed_ids:
+        tmdb_series = pd.to_numeric(result["tmdb_id"], errors="coerce").astype("Int64")
+        mask = tmdb_series.isin(list(allowed_ids))
+        result = result[mask]
+        if result.empty:
+            return result
+    if "similarity" in result.columns and "vote_count" in result.columns:
+        vote_counts = result["vote_count"].fillna(0).astype(float)
+        similarity = result["similarity"].fillna(0).astype(float)
+        result = result.copy()
+        result["pop_weighted_score"] = similarity * (1.0 + np.log1p(vote_counts))
+        result = result.sort_values(
+            ["pop_weighted_score", "similarity"], ascending=False
+        ).drop(columns=["pop_weighted_score"])
+    return result
+
+
 def make_recommendations(
     titles: Sequence[str],
     *,
     top_n: int = rc.DEFAULT_TOP_N,
     method: MethodLiteral = "score_avg",
+    restrict_to_movielens: bool = False,
+    movielens_links_path: Path | None = None,
+    use_profile_backend: bool = False,
 ) -> RecommendationResponse:
     cleaned_titles = [t.strip() for t in titles if t.strip()]
     if not cleaned_titles:
@@ -177,16 +214,35 @@ def make_recommendations(
     used_fallback = False
     dataframe: pd.DataFrame | None = None
 
-    if not movie_ids:
-        used_fallback = True
-        dataframe = rc.get_popular_fallback(top_n=top_n)
-    elif len(movie_ids) == 1:
-        dataframe = rc.recommend_single(movie_ids[0], top_n=top_n, method=method)
+    if use_profile_backend:
+        profile_df, missing_profile = up.recommend_with_profile(
+            cleaned_titles,
+            top_n=top_n,
+        )
+        missing = missing_profile
+        dataframe = profile_df
+        if not movie_ids or dataframe is None or dataframe.empty:
+            used_fallback = True
     else:
-        dataframe = rc.recommend_multi(movie_ids, top_n=top_n, method=method)
-        if dataframe.empty:
+        if not movie_ids:
             used_fallback = True
             dataframe = rc.get_popular_fallback(top_n=top_n)
+        elif len(movie_ids) == 1:
+            dataframe = rc.recommend_single(movie_ids[0], top_n=top_n, method=method)
+        else:
+            dataframe = rc.recommend_multi(movie_ids, top_n=top_n, method=method)
+            if dataframe.empty:
+                used_fallback = True
+                dataframe = rc.get_popular_fallback(top_n=top_n)
+
+    if restrict_to_movielens:
+        links_path = movielens_links_path or DEFAULT_LINKS_PATH
+        allowed_ids = get_movielens_tmdb_ids(str(links_path))
+        dataframe = _apply_movielens_postprocessing(dataframe, allowed_ids)
+        if dataframe is None or dataframe.empty:
+            used_fallback = True
+            fallback = rc.get_popular_fallback(top_n=top_n)
+            dataframe = _apply_movielens_postprocessing(fallback, allowed_ids)
 
     return RecommendationResponse(
         dataframe=dataframe,
@@ -259,27 +315,41 @@ def evaluate_model(
     min_liked: int,
     method: MethodLiteral,
     seed: int,
+    restrict_to_movielens: bool = False,
 ) -> EvaluationResponse:
+    eval_kwargs = dict(
+        ratings_path=ratings_path,
+        links_path=links_path,
+        n_users=n_users,
+        top_n=top_n,
+        mode=mode,
+        rating_threshold=rating_threshold,
+        min_liked=min_liked,
+        method=method,
+        seed=seed,
+    )
+    if restrict_to_movielens and _EVAL_HAS_RESTRICT:
+        eval_kwargs["restrict_to_links"] = True
+
     try:
-        result = ec.evaluate(
-            ratings_path,
-            links_path,
-            n_users=n_users,
-            top_n=top_n,
-            mode=mode,
-            rating_threshold=rating_threshold,
-            min_liked=min_liked,
-            method=method,
-            seed=seed,
-        )
+        result = ec.evaluate(**eval_kwargs)
     except Exception as exc:
-        return EvaluationResponse(
-            hit_rate=None,
-            hits=None,
-            tested=None,
-            samples=None,
-            error=str(exc),
-        )
+        if (
+            restrict_to_movielens
+            and not _EVAL_HAS_RESTRICT
+            and isinstance(exc, TypeError)
+            and "restrict_to_links" in str(exc)
+        ):
+            eval_kwargs.pop("restrict_to_links", None)
+            result = ec.evaluate(**eval_kwargs)
+        else:
+            return EvaluationResponse(
+                hit_rate=None,
+                hits=None,
+                tested=None,
+                samples=None,
+                error=str(exc),
+            )
 
     return EvaluationResponse(
         hit_rate=result["hit_rate"],

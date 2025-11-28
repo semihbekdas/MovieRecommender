@@ -5,7 +5,7 @@ Bu doküman `test-web` değerlendirme sekmesinde görülen düşük HitRate@10 d
 ## Çalışma Ortamı
 
 - Komut: `python3 Content-Based/evaluate_content.py --n-users 50 --top-n 10` (ayrıca `--mode profile`, `--min-liked 5` varyasyonları)
-- Veri: `data/ratings_small.csv` ve `data/links_small.csv`
+- Veri: `data/ratings.csv` ve `data/links.csv`
 - İçerik model artefaktları: `Content-Based/models/metadata.parquet`, `tfidf_matrix.npz`, `tfidf_vectorizer.pkl`
 
 Bu komutlar Streamlit değerlendirme sekmesiyle aynı fonksiyonu (`evaluate_content.evaluate`) tetikliyor; yani ölçülen oran UI kaynaklı değil, model davranışına ait.

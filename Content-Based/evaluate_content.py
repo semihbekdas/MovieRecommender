@@ -11,8 +11,8 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 DATA_DIR = PROJECT_ROOT / "data"
-DEFAULT_RATINGS = DATA_DIR / "ratings_small.csv"
-DEFAULT_LINKS = DATA_DIR / "links_small.csv"
+DEFAULT_RATINGS = DATA_DIR / "ratings.csv"
+DEFAULT_LINKS = DATA_DIR / "links.csv"
 
 if str(BASE_DIR) not in __import__("sys").path:
     __import__("sys").path.append(str(BASE_DIR))
@@ -23,20 +23,20 @@ import user_profile as up  # noqa: E402
 
 def load_ratings(path: Path) -> pd.DataFrame:
     if not path.exists():
-        raise FileNotFoundError(f"ratings_small.csv bulunamadı: {path}")
+        raise FileNotFoundError(f"ratings verisi bulunamadı: {path}")
     df = pd.read_csv(path)
     expected = {"userId", "movieId", "rating"}
     if not expected.issubset(df.columns):
-        raise ValueError("ratings_small.csv beklenen kolonlara sahip değil.")
+        raise ValueError("ratings.csv beklenen kolonlara sahip değil.")
     return df
 
 
 def load_links(path: Path) -> pd.DataFrame:
     if not path.exists():
-        raise FileNotFoundError(f"links_small.csv bulunamadı: {path}")
+        raise FileNotFoundError(f"links verisi bulunamadı: {path}")
     df = pd.read_csv(path)
     if "movieId" not in df.columns or "tmdbId" not in df.columns:
-        raise ValueError("links_small.csv içinde movieId/tmdbId kolonları yok.")
+        raise ValueError("links.csv içinde movieId/tmdbId kolonları yok.")
     df["tmdbId"] = pd.to_numeric(df["tmdbId"], errors="coerce").astype("Int64")
     df = df.dropna(subset=["tmdbId"])
     df["tmdbId"] = df["tmdbId"].astype(int)
@@ -58,10 +58,14 @@ def evaluate(
     min_liked: int,
     method: str,
     seed: int,
+    restrict_to_links: bool = False,
 ) -> dict:
     ratings_df = load_ratings(ratings_path)
     links_df = load_links(links_path)
     movie_map = build_movieid_to_tmdb(links_df)
+    allowed_tmdb_ids: set[int] | None = None
+    if restrict_to_links:
+        allowed_tmdb_ids = set(links_df["tmdbId"].astype(int).tolist())
     bundle = rc.load_artifacts()
 
     rng = random.Random(seed)
@@ -119,6 +123,11 @@ def evaluate(
         if recs.empty:
             continue
 
+        if allowed_tmdb_ids is not None:
+            recs = recs[recs["tmdb_id"].isin(allowed_tmdb_ids)]
+            if recs.empty:
+                continue
+
         try:
             rank = recs["tmdb_id"].tolist().index(hidden_movie) + 1
             hit = rank <= top_n
@@ -158,8 +167,8 @@ def evaluate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Content-Based HitRate@N değerlendirmesi")
-    parser.add_argument("--ratings", type=Path, default=DEFAULT_RATINGS, help="ratings_small.csv yolu")
-    parser.add_argument("--links", type=Path, default=DEFAULT_LINKS, help="links_small.csv yolu")
+    parser.add_argument("--ratings", type=Path, default=DEFAULT_RATINGS, help="ratings.csv yolu")
+    parser.add_argument("--links", type=Path, default=DEFAULT_LINKS, help="links.csv yolu")
     parser.add_argument("--n-users", type=int, default=50, help="Kaç kullanıcı test edilecek")
     parser.add_argument("--top-n", type=int, default=10)
     parser.add_argument("--mode", choices=("standard", "profile"), default="standard")
@@ -172,6 +181,11 @@ def parse_args() -> argparse.Namespace:
         help="Standart mod için çoklu film yöntemi",
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--restrict-to-links",
+        action="store_true",
+        help="Önerileri links_small.csv içindeki TMDB kimlikleriyle sınırlar.",
+    )
     return parser.parse_args()
 
 
@@ -187,6 +201,7 @@ def main() -> None:
         min_liked=args.min_liked,
         method=args.method,
         seed=args.seed,
+        restrict_to_links=args.restrict_to_links,
     )
     print(f"HitRate@{args.top_n}: {result['hit_rate']:.3f} ({result['hits']}/{result['tested']})")
     if result["samples"]:

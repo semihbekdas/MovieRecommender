@@ -55,8 +55,8 @@ EVALUATION_HELP_MD = """
 - MovieLens kullanıcılarından örnekler alır, her kullanıcının çok beğendiği filmlerden birini gizleyip modelin bu filmi Top-N içinde yakalayıp yakalayamadığını ölçer.
 
 **Girdi Dosyaları**
-- `ratings_small.csv`: Kullanıcı-film-puan satırları (`data/ratings_small.csv` varsayılan).
-- `links_small.csv`: `movieId` → `tmdbId` eşleşmeleri (`data/links_small.csv` varsayılan).
+- `ratings.csv`: Kullanıcı-film-puan satırları (`data/ratings.csv` varsayılan).
+- `links.csv`: `movieId` → `tmdbId` eşleşmeleri (`data/links.csv` varsayılan).
 
 **Parametrelerin Etkisi**
 - `Test edilecek kullanıcı sayısı`: Daha yüksek değer daha uzun ama daha güvenilir sonuç verir.
@@ -121,7 +121,7 @@ def load_last_recommendations() -> pd.DataFrame | None:
     return pd.DataFrame.from_records(records)
 
 
-def render_sidebar() -> tuple[BundleSummary, int, str]:
+def render_sidebar() -> tuple[BundleSummary, int, str, dict[str, bool]]:
     with st.sidebar:
         st.title("Kontroller")
         reload_clicked = st.button("Artefaktları Yeniden Yükle", use_container_width=True)
@@ -157,7 +157,30 @@ def render_sidebar() -> tuple[BundleSummary, int, str]:
             format_func=lambda key: METHOD_LABELS[key],
         )
         st.caption("i) Ayarlar tüm sekmeleri etkiler; değişiklikten sonra manuel öneriyi tekrar çalıştırın.")
-    return summary, top_n, method
+
+        st.markdown("### 🧪 Deneysel Ayarlar")
+        manual_filter = st.checkbox(
+            "Manuel önerilerde MovieLens filtresi + pop ağırlığı",
+            help="Öneri listesini links.csv içindeki filmlerle sınırlar ve popülerlik ağırlığı uygular.",
+            key="option_manual_movielens_filter",
+        )
+        manual_profile = st.checkbox(
+            "Manuel önerilerde kullanıcı profil vektörü",
+            help="Seçilen filmlerden tek bir kullanıcı profili oluşturur ve cosine benzerliği ile önerir.",
+            key="option_manual_profile",
+        )
+        eval_filter = st.checkbox(
+            "HitRate hesaplarında MovieLens filtresi",
+            help="Değerlendirme sırasında yalnızca MovieLens kataloğundaki filmler hit olarak kabul edilir.",
+            key="option_eval_movielens_filter",
+        )
+
+    options = {
+        "manual_movielens_filter": bool(manual_filter),
+        "manual_profile_backend": bool(manual_profile),
+        "eval_movielens_filter": bool(eval_filter),
+    }
+    return summary, top_n, method, options
 
 
 def render_file_status_table(files: list[FileStatus]) -> None:
@@ -182,9 +205,13 @@ def render_file_status_table(files: list[FileStatus]) -> None:
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-def render_manual_tab(top_n: int, method: str) -> None:
+def render_manual_tab(top_n: int, method: str, options: dict[str, bool]) -> None:
     st.subheader("Manuel Öneri")
     st.caption("i) Film listesinden beğendiğiniz başlıkları arayarak seçin, ardından önerileri çalıştırın.")
+    if options.get("manual_movielens_filter"):
+        st.info("MovieLens filtresi + pop ağırlığı aktif: Sonuçlar links.csv kataloğuyla sınırlandırılacak.")
+    if options.get("manual_profile_backend"):
+        st.info("Kullanıcı profil vektörü aktif: Seçilen filmler tek profile dönüştürülerek cosine benzerliği hesaplanacak.")
     labels, label_map = cached_title_options()
 
     if not labels:
@@ -219,7 +246,14 @@ def render_manual_tab(top_n: int, method: str) -> None:
             st.warning("Önce en az bir film seçmelisiniz.")
             return
         with st.spinner("Benzerlik skorları hesaplanıyor..."):
-            response = make_recommendations(titles, top_n=top_n, method=method)
+            response = make_recommendations(
+                titles,
+                top_n=top_n,
+                method=method,
+                restrict_to_movielens=options.get("manual_movielens_filter", False),
+                movielens_links_path=Path(st.session_state.get("links_path", str(DEFAULT_LINKS_PATH))),
+                use_profile_backend=options.get("manual_profile_backend", False),
+            )
         render_recommendation_response(response)
     else:
         cached = load_last_recommendations()
@@ -292,9 +326,11 @@ def render_inspection_tab() -> None:
         st.info("Metadata yüklenemedi. Artefaktların hazır olduğundan emin olun.")
 
 
-def render_evaluation_tab(default_method: str, default_top_n: int) -> None:
+def render_evaluation_tab(default_method: str, default_top_n: int, apply_movielens_filter: bool) -> None:
     st.subheader("Değerlendirme Senaryosu")
     st.caption("i) HitRate@N metriği ile gizlenen filmlerin öneri listesinde yer alıp almadığını ölçer.")
+    if apply_movielens_filter:
+        st.info("MovieLens filtresi aktif: öneri listesinde sadece links.csv kataloğundaki filmler değerlendirilecek.")
     with st.expander("Bu sekme nasıl çalışıyor?", expanded=False):
         st.markdown(EVALUATION_HELP_MD)
 
@@ -303,12 +339,12 @@ def render_evaluation_tab(default_method: str, default_top_n: int) -> None:
 
     with st.form("evaluation-form"):
         ratings_path = st.text_input(
-            "ratings_small.csv yolu",
+            "ratings.csv yolu",
             value=default_ratings,
-            help="Kullanıcı-film puanlamalarını içeren CSV. MovieLens örneği data/ratings_small.csv."
+            help="Kullanıcı-film puanlamalarını içeren CSV. MovieLens örneği data/ratings.csv."
         )
         links_path = st.text_input(
-            "links_small.csv yolu",
+            "links.csv yolu",
             value=default_links,
             help="MovieLens movieId değerlerini TMDB kimliklerine eşleyen CSV."
         )
@@ -402,6 +438,7 @@ def render_evaluation_tab(default_method: str, default_top_n: int) -> None:
                 min_liked=min_liked,
                 method=method,
                 seed=int(seed),
+                restrict_to_movielens=apply_movielens_filter,
             )
         payload = {
             "inputs": {
@@ -489,7 +526,7 @@ def render_selection_logic_banner() -> None:
     else:
         inputs = DEFAULT_EVAL_INPUTS
     st.info(
-        "Kullanıcı seçme akışı: ratings_small.csv içindeki kullanıcılardan "
+        "Kullanıcı seçme akışı: ratings.csv içindeki kullanıcılardan "
         f"`rating >= {inputs['rating_threshold']}` koşulunu sağlayan ve en az "
         f"{inputs['min_liked']} favori filme sahip olanlar filtrelenir. "
         f"Rastgele {inputs['n_users']} kullanıcı seçilip her biri için bir film gizlenir; "
@@ -531,8 +568,12 @@ def main() -> None:
         st.session_state["reload_counter"] = 0
     st.session_state.setdefault("ratings_path", str(DEFAULT_RATINGS_PATH))
     st.session_state.setdefault("links_path", str(DEFAULT_LINKS_PATH))
+    if str(st.session_state["ratings_path"]).endswith("ratings_small.csv"):
+        st.session_state["ratings_path"] = str(DEFAULT_RATINGS_PATH)
+    if str(st.session_state["links_path"]).endswith("links_small.csv"):
+        st.session_state["links_path"] = str(DEFAULT_LINKS_PATH)
 
-    summary, top_n, method = render_sidebar()
+    summary, top_n, method, feature_flags = render_sidebar()
     render_selection_logic_banner()
     render_global_stats()
 
@@ -541,11 +582,11 @@ def main() -> None:
     )
 
     with tab_manual:
-        render_manual_tab(top_n, method)
+        render_manual_tab(top_n, method, feature_flags)
     with tab_inspect:
         render_inspection_tab()
     with tab_eval:
-        render_evaluation_tab(method, top_n)
+        render_evaluation_tab(method, top_n, feature_flags.get("eval_movielens_filter", False))
 
     if not summary.ready:
         st.warning("Artefaktlar hazır olmadan sonuçlar eksik olabilir.")
