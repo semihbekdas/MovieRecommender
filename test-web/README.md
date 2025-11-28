@@ -43,6 +43,7 @@ Arayüz tarayıcıda açıldıktan sonra üç ana sekme göreceksiniz:
 - `evaluate_content.evaluate` fonksiyonunu tetikleyerek HitRate@N metriğini çalıştırın.
 - `ratings_small.csv` ve `links_small.csv` yollarını güncelleyerek farklı veri kümelerini test edin.
 - Örnek kullanıcı sonuçları tablo halinde listelenir.
+- Formun altında yer alan **İnput/Output Paylaşımı** bölümünden, kullandığınız parametreleri ve çıkan sonuçları JSON olarak indirip paylaşabilirsiniz.
 
 ## Sorun Giderme
 

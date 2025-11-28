@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -387,7 +388,30 @@ def render_evaluation_tab(default_method: str, default_top_n: int) -> None:
                 method=method,
                 seed=int(seed),
             )
+        payload = {
+            "inputs": {
+                "ratings_path": str(ratings),
+                "links_path": str(links),
+                "n_users": n_users,
+                "top_n": eval_top_n,
+                "mode": mode,
+                "rating_threshold": rating_threshold,
+                "min_liked": min_liked,
+                "method": method,
+                "seed": int(seed),
+            },
+            "outputs": {
+                "hit_rate": response.hit_rate,
+                "hits": response.hits,
+                "tested": response.tested,
+                "samples": response.samples,
+                "error": response.error,
+            },
+        }
+        st.session_state["last_eval_payload"] = payload
         render_evaluation_response(response, eval_top_n)
+
+    render_share_section()
 
 
 def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None:
@@ -413,6 +437,24 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("Örnek kullanıcı verisi bulunamadı.")
+
+
+def render_share_section() -> None:
+    st.subheader("İnput/Output Paylaşımı")
+    payload = st.session_state.get("last_eval_payload")
+    if not payload:
+        st.info("Önce bir değerlendirme çalıştırın, ardından sonuçları paylaşabilirsiniz.")
+        return
+
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    st.json(payload)
+    st.download_button(
+        "JSON olarak indir",
+        data=serialized.encode("utf-8"),
+        file_name="evaluation_result.json",
+        mime="application/json",
+        use_container_width=True,
+    )
 
 
 def main() -> None:
