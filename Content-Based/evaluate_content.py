@@ -70,7 +70,8 @@ def evaluate(
 
     hits = 0
     tested = 0
-    samples: list[dict] = []
+    hit_samples: list[dict] = []
+    miss_samples: list[dict] = []
     title_lookup = (
         bundle.metadata.drop_duplicates(subset="tmdb_id")
         .set_index("tmdb_id")["title"]
@@ -127,26 +128,31 @@ def evaluate(
 
         hits += int(hit)
         tested += 1
-        samples.append(
-            {
-                "userId": int(user_id),
-                "hidden_tmdb": int(hidden_movie),
-                "hidden_title": title_lookup.get(hidden_movie, "Unknown"),
-                "hit": bool(hit),
-                "rank": rank,
-                "hidden_rating": hidden_rating,
-            }
-        )
+        sample = {
+            "userId": int(user_id),
+            "hidden_tmdb": int(hidden_movie),
+            "hidden_title": title_lookup.get(hidden_movie, "Unknown"),
+            "hit": bool(hit),
+            "rank": rank,
+            "hidden_rating": hidden_rating,
+        }
+        if hit:
+            hit_samples.append(sample)
+        else:
+            miss_samples.append(sample)
 
         if tested >= n_users:
             break
+
+    rng.shuffle(miss_samples)
+    samples = (hit_samples + miss_samples)[:10]
 
     hit_rate = hits / tested if tested else 0.0
     return {
         "hit_rate": hit_rate,
         "hits": hits,
         "tested": tested,
-        "samples": samples[:10],
+        "samples": samples,
     }
 
 
