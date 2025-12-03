@@ -705,7 +705,7 @@ def render_single_radar_chart(profile: UserGenreProfile) -> None:
     
     fig.update_layout(
         polar=dict(
-            bgcolor='rgba(0,0,0,0)',  # Polar alan şeffaf
+            bgcolor='#0e1117',  # Polar alan siyah (Streamlit dark theme)
             radialaxis=dict(
                 visible=True,
                 range=[0, 1],
@@ -727,8 +727,8 @@ def render_single_radar_chart(profile: UserGenreProfile) -> None:
         ),
         height=280,
         margin=dict(l=40, r=40, t=50, b=30),
-        paper_bgcolor='rgba(0,0,0,0)',  # Kağıt arka planı şeffaf
-        plot_bgcolor='rgba(0,0,0,0)',   # Plot arka planı şeffaf
+        paper_bgcolor='#0e1117',  # Kağıt arka planı siyah
+        plot_bgcolor='#0e1117',   # Plot arka planı siyah
     )
     
     st.plotly_chart(fig, use_container_width=True)
