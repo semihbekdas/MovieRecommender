@@ -156,10 +156,10 @@ def parse_cast(value: str, top_n: int = 5) -> list[str]:
         if isinstance(items, list):
             cast = [
                 item.get("name", "").strip().replace(" ", "_")
-                for item in items[:top_n]
+                for item in items  # ← TÜM listeyi işle
                 if isinstance(item, dict) and item.get("name")
             ]
-            return [c for c in cast if c]
+            return [c for c in cast if c][:top_n]  # ← ÖNCE filtrele, SONRA slice
     except (ValueError, SyntaxError, TypeError):
         return []
     return []

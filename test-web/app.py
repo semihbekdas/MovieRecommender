@@ -666,9 +666,9 @@ def render_single_radar_chart(profile: UserGenreProfile) -> None:
     if not profile.top_genres:
         return
     
-    # Radar chart için veri hazırla
-    categories = profile.top_genres
-    values = profile.genre_weights
+    # Radar chart için veri hazırla - KOPYAlarını al
+    categories = list(profile.top_genres)    # ← Yeni liste oluştur
+    values = list(profile.genre_weights)     # ← Yeni liste oluştur
     
     # Beşgen için 5 kategori olmalı, eksikse doldur
     while len(categories) < 5:
