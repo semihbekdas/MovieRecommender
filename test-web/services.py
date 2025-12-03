@@ -542,3 +542,110 @@ def get_title_options(limit: int = 5000, min_vote_count: int = 20) -> tuple[Titl
         )
     return tuple(options)
 
+
+@dataclass
+class UserGenreProfile:
+    """Kullanıcının genre dağılımı."""
+    user_id: int
+    top_genres: list[str]  # Genre isimleri
+    genre_counts: list[int]  # Her genre için film sayısı
+    genre_weights: list[float]  # Normalize edilmiş ağırlıklar (0-1)
+    total_movies: int
+
+
+def get_user_genre_profile(
+    user_id: int,
+    ratings_path: Path,
+    links_path: Path,
+    rating_threshold: float = 4.0,
+    top_k: int = 5,
+) -> UserGenreProfile | None:
+    """
+    Belirli bir kullanıcının en çok izlediği/beğendiği genre'ları hesapla.
+    Radar chart için kullanılacak.
+    """
+    try:
+        # Ratings ve links yükle
+        ratings_df = ec.load_ratings(ratings_path)
+        links_df = ec.load_links(links_path)
+        bundle = rc.load_artifacts()
+        
+        # Kullanıcının beğendiği filmler
+        user_ratings = ratings_df[ratings_df["userId"] == user_id]
+        liked = user_ratings[user_ratings["rating"] >= rating_threshold]
+        
+        if liked.empty:
+            return None
+        
+        # MovieId -> TmdbId mapping
+        movie_map = links_df.drop_duplicates(subset="movieId").set_index("movieId")["tmdbId"].to_dict()
+        
+        # Genre sayımı
+        genre_counter: dict[str, int] = {}
+        total_movies = 0
+        
+        for _, row in liked.iterrows():
+            movie_id = int(row["movieId"])
+            tmdb_id = movie_map.get(movie_id)
+            
+            if tmdb_id is None:
+                continue
+            
+            # Metadata'dan genre al
+            movie_meta = bundle.metadata[bundle.metadata["tmdb_id"] == tmdb_id]
+            if movie_meta.empty:
+                continue
+            
+            genres_str = movie_meta.iloc[0].get("genres", "")
+            if pd.isna(genres_str) or not genres_str:
+                continue
+            
+            # Genre'ları parse et ve unique yap (weighted genre'lar tekrarlı olabilir)
+            raw_genres = [g.strip() for g in str(genres_str).split() if g.strip()]
+            genres = list(dict.fromkeys(raw_genres))  # Sırayı koruyarak unique yap
+            total_movies += 1
+            
+            for genre in genres:
+                genre_counter[genre] = genre_counter.get(genre, 0) + 1
+        
+        if not genre_counter:
+            return None
+        
+        # En çok izlenen top_k genre
+        sorted_genres = sorted(genre_counter.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        
+        top_genres = [g[0] for g in sorted_genres]
+        genre_counts = [g[1] for g in sorted_genres]
+        
+        # Normalize et (max değere göre 0-1 arası)
+        max_count = max(genre_counts) if genre_counts else 1
+        genre_weights = [c / max_count for c in genre_counts]
+        
+        return UserGenreProfile(
+            user_id=user_id,
+            top_genres=top_genres,
+            genre_counts=genre_counts,
+            genre_weights=genre_weights,
+            total_movies=total_movies,
+        )
+    except Exception:
+        return None
+
+
+def get_multiple_user_genre_profiles(
+    user_ids: list[int],
+    ratings_path: Path,
+    links_path: Path,
+    rating_threshold: float = 4.0,
+    top_k: int = 5,
+) -> list[UserGenreProfile]:
+    """Birden fazla kullanıcının genre profillerini al."""
+    profiles = []
+    for uid in user_ids:
+        profile = get_user_genre_profile(
+            uid, ratings_path, links_path, rating_threshold, top_k
+        )
+        if profile:
+            profiles.append(profile)
+    return profiles
+

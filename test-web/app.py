@@ -19,6 +19,7 @@ from services import (
     FileStatus,
     RecommendationResponse,
     TitleOption,
+    UserGenreProfile,
     DEFAULT_LINKS_PATH,
     DEFAULT_RATINGS_PATH,
     evaluate_model,
@@ -28,6 +29,8 @@ from services import (
     get_metadata_stats,
     get_rating_stats,
     get_title_options,
+    get_user_genre_profile,
+    get_multiple_user_genre_profiles,
     make_recommendations,
 )
 
@@ -533,7 +536,7 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
     col5.metric("Bulunan Film", f"{hits}/{total_hidden}")
     col6.metric("Test Edilen", tested)
 
-    st.progress(hit_rate if hit_rate <= 1 else 1.0)
+    st.progress(hit_rate_user if hit_rate_user <= 1 else 1.0)
 
     samples = response.samples or []
     if samples:
@@ -606,8 +609,132 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
             if display_samples:
                 df = pd.DataFrame(display_samples)
                 st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Kullanıcı genre profilleri - Radar Chart
+        render_user_genre_radar_charts(samples)
     else:
         st.info("Örnek kullanıcı verisi bulunamadı.")
+
+
+def render_user_genre_radar_charts(samples: list[dict]) -> None:
+    """Kullanıcıların genre profillerini radar chart olarak göster."""
+    if not samples:
+        return
+    
+    # Payload'dan paths al
+    payload = st.session_state.get("last_eval_payload")
+    if payload and "inputs" in payload:
+        ratings_path = Path(payload["inputs"].get("ratings_path", str(DEFAULT_RATINGS_PATH)))
+        links_path = Path(payload["inputs"].get("links_path", str(DEFAULT_LINKS_PATH)))
+        rating_threshold = payload["inputs"].get("rating_threshold", 4.0)
+    else:
+        ratings_path = DEFAULT_RATINGS_PATH
+        links_path = DEFAULT_LINKS_PATH
+        rating_threshold = 4.0
+    
+    st.markdown("---")
+    st.markdown("### 🎯 Kullanıcı Genre Profilleri")
+    st.caption("Her kullanıcının en çok izlediği 5 kategori (beşgen grafik)")
+    
+    # Kullanıcı ID'lerini al
+    user_ids = [s.get("userId") for s in samples[:6] if s.get("userId")]
+    
+    if not user_ids:
+        return
+    
+    # Genre profillerini al
+    with st.spinner("Kullanıcı profilleri hesaplanıyor..."):
+        profiles = get_multiple_user_genre_profiles(
+            user_ids, ratings_path, links_path, rating_threshold, top_k=5
+        )
+    
+    if not profiles:
+        st.info("Kullanıcı genre profili oluşturulamadı.")
+        return
+    
+    # Radar chartları göster
+    cols = st.columns(min(3, len(profiles)))
+    
+    for i, profile in enumerate(profiles[:6]):
+        col_idx = i % 3
+        with cols[col_idx]:
+            render_single_radar_chart(profile)
+
+
+def render_single_radar_chart(profile: UserGenreProfile) -> None:
+    """Tek bir kullanıcı için radar chart çiz."""
+    if not profile.top_genres:
+        return
+    
+    # Radar chart için veri hazırla
+    categories = profile.top_genres
+    values = profile.genre_weights
+    
+    # Beşgen için 5 kategori olmalı, eksikse doldur
+    while len(categories) < 5:
+        categories.append("")
+        values.append(0)
+    
+    # İlk değeri sona da ekle (kapalı poligon için)
+    categories_closed = categories + [categories[0]]
+    values_closed = values + [values[0]]
+    
+    fig = go.Figure()
+    
+    # Dış çerçeve (referans - %100 sınırı)
+    fig.add_trace(go.Scatterpolar(
+        r=[1] * len(categories_closed),
+        theta=categories_closed,
+        fill=None,
+        mode='lines',
+        line=dict(color='rgba(200,200,200,0.4)', width=1, dash='dot'),
+        name='Max',
+        showlegend=False,
+    ))
+    
+    # Kullanıcı profili
+    fig.add_trace(go.Scatterpolar(
+        r=values_closed,
+        theta=categories_closed,
+        fill='toself',
+        fillcolor='rgba(99, 110, 250, 0.4)',
+        line=dict(color='rgb(99, 110, 250)', width=2),
+        name=f'User {profile.user_id}',
+        hovertemplate='%{theta}: %{r:.0%}<extra></extra>',
+    ))
+    
+    fig.update_layout(
+        polar=dict(
+            bgcolor='rgba(0,0,0,0)',  # Polar alan şeffaf
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1],
+                tickvals=[0.25, 0.5, 0.75, 1],
+                ticktext=['25%', '50%', '75%', '100%'],
+                tickfont=dict(size=8, color='#888'),
+                gridcolor='rgba(100,100,100,0.3)',
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=10, color='#ddd'),
+                gridcolor='rgba(100,100,100,0.3)',
+            ),
+        ),
+        showlegend=False,
+        title=dict(
+            text=f"👤 User {profile.user_id}",
+            font=dict(size=12, color='#fff'),
+            x=0.5,
+        ),
+        height=280,
+        margin=dict(l=40, r=40, t=50, b=30),
+        paper_bgcolor='rgba(0,0,0,0)',  # Kağıt arka planı şeffaf
+        plot_bgcolor='rgba(0,0,0,0)',   # Plot arka planı şeffaf
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Film sayısı bilgisi
+    st.caption(f"📊 {profile.total_movies} film · Top: {profile.top_genres[0]} ({profile.genre_counts[0]})")
 
 
 def render_share_section() -> None:
