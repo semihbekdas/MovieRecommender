@@ -58,11 +58,41 @@ class RecommendationResponse:
 
 @dataclass
 class EvaluationResponse:
-    hit_rate: float | None
+    hit_rate: float | None  # Film bazlı: hits / total_hidden
     hits: int | None
     tested: int | None
     samples: list[dict] | None
     error: str | None = None
+    # Leave-K-Out için ek alanlar
+    n_hidden: int | None = None
+    total_hidden: int | None = None
+    avg_recall: float | None = None
+    avg_precision: float | None = None
+    # Smart hide için ek alanlar
+    smart_hide: bool | None = None
+    min_hide_similarity: float | None = None
+    avg_hide_similarity: float | None = None
+    skipped_no_similar: int | None = None
+    # Kullanıcı bazlı metrikler (yeni)
+    hit_rate_user: float | None = None  # Kullanıcı bazlı: users_with_hit / tested
+    users_with_hit: int | None = None  # En az 1 hit alan kullanıcı sayısı
+
+
+@dataclass
+class ComparisonResult:
+    """Farklı benzerlik eşikleri için karşılaştırma sonucu."""
+    threshold: float
+    hit_rate: float  # Film bazlı
+    hits: int
+    tested: int
+    skipped: int
+    avg_hide_similarity: float
+    total_hidden: int
+    avg_recall: float
+    error: str | None = None
+    # Kullanıcı bazlı metrikler (yeni)
+    hit_rate_user: float | None = None
+    users_with_hit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -316,6 +346,9 @@ def evaluate_model(
     method: MethodLiteral,
     seed: int,
     restrict_to_movielens: bool = False,
+    n_hidden: int = 1,
+    smart_hide: bool = True,
+    min_hide_similarity: float = 0.05,
 ) -> EvaluationResponse:
     eval_kwargs = dict(
         ratings_path=ratings_path,
@@ -327,6 +360,9 @@ def evaluate_model(
         min_liked=min_liked,
         method=method,
         seed=seed,
+        n_hidden=n_hidden,
+        smart_hide=smart_hide,
+        min_hide_similarity=min_hide_similarity,
     )
     if restrict_to_movielens and _EVAL_HAS_RESTRICT:
         eval_kwargs["restrict_to_links"] = True
@@ -357,7 +393,108 @@ def evaluate_model(
         tested=result["tested"],
         samples=result.get("samples", []),
         error=None,
+        n_hidden=result.get("n_hidden", 1),
+        total_hidden=result.get("total_hidden"),
+        avg_recall=result.get("avg_recall"),
+        avg_precision=result.get("avg_precision"),
+        smart_hide=result.get("smart_hide"),
+        min_hide_similarity=result.get("min_hide_similarity"),
+        avg_hide_similarity=result.get("avg_hide_similarity"),
+        skipped_no_similar=result.get("skipped_no_similar"),
+        # Kullanıcı bazlı metrikler (yeni)
+        hit_rate_user=result.get("hit_rate_user"),
+        users_with_hit=result.get("users_with_hit"),
     )
+
+
+def evaluate_multiple_thresholds(
+    *,
+    ratings_path: Path,
+    links_path: Path,
+    n_users: int,
+    top_n: int,
+    mode: EvalModeLiteral,
+    rating_threshold: float,
+    min_liked: int,
+    method: MethodLiteral,
+    seed: int,
+    thresholds: list[float],
+    n_hidden: int = 1,
+    restrict_to_movielens: bool = False,
+) -> list[ComparisonResult]:
+    """
+    Farklı benzerlik eşikleri ile karşılaştırmalı değerlendirme yap.
+    
+    Args:
+        thresholds: Test edilecek benzerlik eşikleri listesi (örn: [0.10, 0.20, 0.30, 0.40])
+    
+    Returns:
+        Her eşik için ComparisonResult listesi
+    """
+    results = []
+    
+    for threshold in thresholds:
+        try:
+            response = evaluate_model(
+                ratings_path=ratings_path,
+                links_path=links_path,
+                n_users=n_users,
+                top_n=top_n,
+                mode=mode,
+                rating_threshold=rating_threshold,
+                min_liked=min_liked,
+                method=method,
+                seed=seed,
+                restrict_to_movielens=restrict_to_movielens,
+                n_hidden=n_hidden,
+                smart_hide=True,
+                min_hide_similarity=threshold,
+            )
+            
+            if response.error:
+                results.append(ComparisonResult(
+                    threshold=threshold,
+                    hit_rate=0.0,
+                    hits=0,
+                    tested=0,
+                    skipped=0,
+                    avg_hide_similarity=0.0,
+                    total_hidden=0,
+                    avg_recall=0.0,
+                    error=response.error,
+                    hit_rate_user=0.0,
+                    users_with_hit=0,
+                ))
+            else:
+                results.append(ComparisonResult(
+                    threshold=threshold,
+                    hit_rate=response.hit_rate or 0.0,
+                    hits=response.hits or 0,
+                    tested=response.tested or 0,
+                    skipped=response.skipped_no_similar or 0,
+                    avg_hide_similarity=response.avg_hide_similarity or 0.0,
+                    total_hidden=response.total_hidden or 0,
+                    avg_recall=response.avg_recall or 0.0,
+                    error=None,
+                    hit_rate_user=response.hit_rate_user or 0.0,
+                    users_with_hit=response.users_with_hit or 0,
+                ))
+        except Exception as exc:
+            results.append(ComparisonResult(
+                threshold=threshold,
+                hit_rate=0.0,
+                hits=0,
+                tested=0,
+                skipped=0,
+                avg_hide_similarity=0.0,
+                total_hidden=0,
+                avg_recall=0.0,
+                error=str(exc),
+                hit_rate_user=0.0,
+                users_with_hit=0,
+            ))
+    
+    return results
 
 
 def _extract_year(value: object) -> str | None:

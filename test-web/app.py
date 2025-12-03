@@ -8,9 +8,13 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+import plotly.express as px
+import plotly.graph_objects as go
+
 import services
 from services import (
     BundleSummary,
+    ComparisonResult,
     EvaluationResponse,
     FileStatus,
     RecommendationResponse,
@@ -18,6 +22,7 @@ from services import (
     DEFAULT_LINKS_PATH,
     DEFAULT_RATINGS_PATH,
     evaluate_model,
+    evaluate_multiple_thresholds,
     get_bundle_summary,
     get_metadata_preview,
     get_metadata_stats,
@@ -45,14 +50,19 @@ DEFAULT_EVAL_INPUTS = {
     "top_n": 10,
     "mode": "standard",
     "rating_threshold": 4.0,
-    "min_liked": 3,
+    "min_liked": 5,
     "method": "score_avg",
     "seed": 42,
+    "n_hidden": 2,
 }
 
 EVALUATION_HELP_MD = """
 **Amaç**
-- MovieLens kullanıcılarından örnekler alır, her kullanıcının çok beğendiği filmlerden birini gizleyip modelin bu filmi Top-N içinde yakalayıp yakalayamadığını ölçer.
+- MovieLens kullanıcılarından örnekler alır, her kullanıcının çok beğendiği filmlerden **K tanesini gizleyip** modelin bu filmleri Top-N içinde yakalayıp yakalayamadığını ölçer.
+
+**Leave-K-Out Yaklaşımı**
+- `n_hidden=1`: Klasik leave-one-out (tek film gizle)
+- `n_hidden=2+`: Birden fazla film gizle, kaç tanesi yakalandığına bak (daha gerçekçi değerlendirme)
 
 **Girdi Dosyaları**
 - `ratings.csv`: Kullanıcı-film-puan satırları (`data/ratings.csv` varsayılan).
@@ -60,7 +70,8 @@ EVALUATION_HELP_MD = """
 
 **Parametrelerin Etkisi**
 - `Test edilecek kullanıcı sayısı`: Daha yüksek değer daha uzun ama daha güvenilir sonuç verir.
-- `HitRate @`: Gizlenen filmin öneri listesinde aranacağı üst sınır.
+- `HitRate @`: Gizlenen filmlerin öneri listesinde aranacağı üst sınır (Top-N).
+- `Gizlenecek film sayısı`: Her kullanıcı için kaç film gizleneceği (Leave-K-Out).
 - `Değerlendirme modu`: `standard` → `recommender_content.recommend_multi`; `profile` → `user_profile.build_user_profile`.
 - `Beğeni eşiği` ve `Min. beğenilen film`: Kullanıcının değerlendirmeye alınması için gereken şartlar.
 - `Çoklu film yöntemi`: `score_avg` skor ortalaması; `vector_avg` TF-IDF vektör ortalaması (yalnızca `standard` modda anlamlı).
@@ -69,18 +80,19 @@ EVALUATION_HELP_MD = """
 **Çalışma Adımları**
 1. Dosyalar okunur ve MovieLens → TMDB eşleşmeleri hazırlanır.
 2. Şartları sağlayan kullanıcılar arasından rastgele seçim yapılır.
-3. Her kullanıcı için beğenilen filmlerden biri gizlenir, kalanlarla öneri listesi üretilir.
-4. Gizlenen film Top-N içinde ise “hit” sayılır.
+3. Her kullanıcı için beğenilen filmlerden **K tanesi rastgele gizlenir**, kalanlarla öneri listesi üretilir.
+4. Gizlenen filmlerden Top-N içinde olanlar "hit" sayılır.
 
 **Çıktılar**
-- `HitRate@N`: `hits/tested` oranı; progress bar ve metrik olarak gösterilir.
-- `Başarılı kullanıcı / Test edilen kullanıcı`: Toplam hit sayısı ve değerlendirilen kullanıcı adedi.
-- `Örnek Kullanıcılar` tablosu: İlk 10 kullanıcının `userId`, gizlenen film adı/ID’si, hit durumu, rank ve gerçek rating bilgisi.
+- `HitRate`: `toplam_hit / toplam_gizlenen` oranı
+- `Avg Recall@N`: Kullanıcı başına gizlenenlerden kaçı Top-N'de (ortalama)
+- `Avg Precision@N`: Kullanıcı başına Top-N'den kaçı gizlenenlerden (ortalama)
+- `Örnek Kullanıcılar` tablosu: Kullanıcı bazlı hit sayısı ve detaylar
 
 **Nasıl Yorumlanır?**
-- Yüksek HitRate, modelin sevilen filmleri üst sıralara getirdiğini gösterir.
+- Yüksek HitRate/Recall, modelin sevilen filmleri Top-N'de yakalayabildiğini gösterir.
+- `n_hidden>1` ile daha robust sonuçlar elde edilir (tek filme bağımlılık azalır).
 - Hiç kullanıcı test edilemiyorsa threshold/min_liked değerleri fazla sıkı olabilir.
-- `rank` değerleri düşükse (1-3) model gizlenen filmi üst sıralarda konumlandırıyor demektir.
 """
 
 
@@ -382,13 +394,23 @@ def render_evaluation_tab(default_method: str, default_top_n: int, apply_moviele
             step=0.5,
             help="Bu puanın üzerindeki filmler 'beğenilen' kabul edilip profil oluşturulur."
         )
-        min_liked = st.number_input(
-            "Min. beğenilen film",
-            min_value=2,
-            max_value=20,
-            value=3,
-            help="Bir kullanıcının değerlendirilmeye girebilmesi için gereken minimum beğeni adedi."
-        )
+        col_minliked, col_nhidden = st.columns(2)
+        with col_minliked:
+            min_liked = st.number_input(
+                "Min. beğenilen film",
+                min_value=3,
+                max_value=20,
+                value=5,
+                help="Bir kullanıcının değerlendirilmeye girebilmesi için gereken minimum beğeni adedi."
+            )
+        with col_nhidden:
+            n_hidden = st.number_input(
+                "Gizlenecek film sayısı",
+                min_value=1,
+                max_value=5,
+                value=2,
+                help="Leave-K-Out: Her kullanıcıdan kaç film gizlenecek. 1=klasik, 2+=çoklu gizleme (daha robust)."
+            )
         method = st.radio(
             "Çoklu film yöntemi",
             options=list(METHOD_LABELS.keys()),
@@ -439,6 +461,7 @@ def render_evaluation_tab(default_method: str, default_top_n: int, apply_moviele
                 method=method,
                 seed=int(seed),
                 restrict_to_movielens=apply_movielens_filter,
+                n_hidden=int(n_hidden),
             )
         payload = {
             "inputs": {
@@ -451,11 +474,15 @@ def render_evaluation_tab(default_method: str, default_top_n: int, apply_moviele
                 "min_liked": min_liked,
                 "method": method,
                 "seed": int(seed),
+                "n_hidden": int(n_hidden),
             },
             "outputs": {
                 "hit_rate": response.hit_rate,
                 "hits": response.hits,
+                "total_hidden": response.total_hidden,
                 "tested": response.tested,
+                "avg_recall": response.avg_recall,
+                "avg_precision": response.avg_precision,
                 "samples": response.samples,
                 "error": response.error,
             },
@@ -471,14 +498,40 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
         st.error(response.error)
         return
 
-    hit_rate = response.hit_rate if response.hit_rate is not None else 0.0
+    hit_rate_film = response.hit_rate if response.hit_rate is not None else 0.0
+    hit_rate_user = response.hit_rate_user if response.hit_rate_user is not None else 0.0
+    users_with_hit = response.users_with_hit if response.users_with_hit is not None else 0
     hits = response.hits if response.hits is not None else 0
     tested = response.tested if response.tested is not None else 0
+    n_hidden = response.n_hidden if response.n_hidden is not None else 1
+    total_hidden = response.total_hidden if response.total_hidden is not None else hits
+    avg_recall = response.avg_recall if response.avg_recall is not None else 0.0
+    avg_precision = response.avg_precision if response.avg_precision is not None else 0.0
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric(f"HitRate@{top_n}", f"{hit_rate:.3f}")
-    col2.metric("Başarılı kullanıcı", hits)
-    col3.metric("Test edilen kullanıcı", tested)
+    # Leave-K-Out modunda farklı metrikler göster
+    st.markdown(f"### 🎯 Leave-{n_hidden}-Out Değerlendirmesi")
+    
+    # İki HitRate metriğini yan yana göster
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(
+            f"📊 Kullanıcı Bazlı HitRate@{top_n}", 
+            f"{hit_rate_user:.1%}",
+            help=f"En az 1 film bulan kullanıcı oranı: {users_with_hit}/{tested}"
+        )
+    with col2:
+        st.metric(
+            f"🎬 Film Bazlı HitRate", 
+            f"{hit_rate_film:.1%}",
+            help=f"Bulunan film oranı: {hits}/{total_hidden}"
+        )
+    
+    # Ek metrikler
+    col3, col4, col5, col6 = st.columns(4)
+    col3.metric(f"Avg Recall@{top_n}", f"{avg_recall:.3f}", help="Kullanıcı başına ortalama recall")
+    col4.metric("Hit Kullanıcı", f"{users_with_hit}/{tested}")
+    col5.metric("Bulunan Film", f"{hits}/{total_hidden}")
+    col6.metric("Test Edilen", tested)
 
     st.progress(hit_rate if hit_rate <= 1 else 1.0)
 
@@ -488,15 +541,71 @@ def render_evaluation_response(response: EvaluationResponse, top_n: int) -> None
         seed = None
         if payload and "inputs" in payload:
             seed = payload["inputs"].get("seed")
-        rng = random.Random(seed)
-        hit_samples = [s for s in samples if s.get("hit")]
-        non_hit_samples = [s for s in samples if not s.get("hit")]
-        rng.shuffle(non_hit_samples)
-        ordered_samples = hit_samples + non_hit_samples
-
+        
         st.markdown("**Örnek Kullanıcılar**")
-        df = pd.DataFrame(ordered_samples)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        if n_hidden > 1:
+            # Leave-K-Out için detaylı tablo
+            display_rows = []
+            for sample in samples[:10]:
+                user_id = sample.get("userId")
+                user_hits = sample.get("hits", 0)
+                recall = sample.get("recall", 0)
+                hidden_movies = sample.get("hidden_movies", [])
+                
+                row = {
+                    "userId": user_id,
+                    "hits": f"{user_hits}/{n_hidden}",
+                    "recall": f"{recall:.2f}",
+                    "hidden_films": ", ".join([
+                        f"{'✅' if hm['hit'] else '❌'}{hm['title'][:25]}" 
+                        for hm in hidden_movies
+                    ])
+                }
+                display_rows.append(row)
+            
+            if display_rows:
+                df = pd.DataFrame(display_rows)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+                
+                # Detaylı görünüm için expander
+                with st.expander("Detaylı film bilgileri"):
+                    for sample in samples[:5]:
+                        user_id = sample.get("userId")
+                        hidden_movies = sample.get("hidden_movies", [])
+                        st.markdown(f"**Kullanıcı {user_id}:**")
+                        for hm in hidden_movies:
+                            hit_icon = "✅" if hm["hit"] else "❌"
+                            rank = hm.get("rank") or "-"
+                            st.markdown(f"  {hit_icon} {hm['title']} (rank: {rank}, rating: {hm['rating']})")
+        else:
+            # Klasik leave-one-out için eski format
+            rng = random.Random(seed)
+            
+            # Eski format samples için dönüşüm
+            display_samples = []
+            for s in samples:
+                if "hidden_movies" in s and s["hidden_movies"]:
+                    hm = s["hidden_movies"][0]
+                    display_samples.append({
+                        "userId": s["userId"],
+                        "hidden_title": hm.get("title", "Unknown"),
+                        "hit": "✅" if hm.get("hit") else "❌",
+                        "rank": hm.get("rank") or "-",
+                        "rating": hm.get("rating", "-"),
+                    })
+                elif "hidden_title" in s:
+                    display_samples.append({
+                        "userId": s["userId"],
+                        "hidden_title": s.get("hidden_title", "Unknown"),
+                        "hit": "✅" if s.get("hit") else "❌",
+                        "rank": s.get("rank") or "-",
+                        "rating": s.get("hidden_rating", "-"),
+                    })
+            
+            if display_samples:
+                df = pd.DataFrame(display_samples)
+                st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("Örnek kullanıcı verisi bulunamadı.")
 
@@ -519,18 +628,431 @@ def render_share_section() -> None:
     )
 
 
+def render_comparison_tab(default_method: str, default_top_n: int) -> None:
+    """Farklı benzerlik eşikleri ile karşılaştırmalı değerlendirme sekmesi."""
+    st.subheader("📊 Benzerlik Eşiği Karşılaştırması")
+    st.caption("Farklı benzerlik eşiklerinin HitRate'e etkisini karşılaştırın.")
+    
+    with st.expander("Bu sekme nasıl çalışıyor?", expanded=False):
+        st.markdown("""
+        **Amaç**: Akıllı gizleme (smart hide) özelliğinde kullanılan minimum benzerlik eşiğinin 
+        değerlendirme sonuçlarına etkisini analiz etmek.
+        
+        **Nasıl Çalışır**:
+        1. Belirtilen eşik değerleri için ayrı ayrı değerlendirme yapılır
+        2. Her eşik için HitRate, test edilen kullanıcı sayısı ve skip edilen kullanıcı sayısı hesaplanır
+        3. Sonuçlar tablo ve grafik olarak gösterilir
+        
+        **Yorumlama**:
+        - Düşük eşik → Daha fazla kullanıcı test edilir, ancak benzerlik düşük olduğu için HitRate düşük olabilir
+        - Yüksek eşik → Daha az kullanıcı test edilir (çoğu skip), ancak test edilenler için HitRate yüksek olur
+        - Optimal eşik, yeterli kullanıcı sayısı ve kabul edilebilir HitRate'i dengeler
+        """)
+    
+    default_ratings = st.session_state.get("ratings_path", str(DEFAULT_RATINGS_PATH))
+    default_links = st.session_state.get("links_path", str(DEFAULT_LINKS_PATH))
+    
+    with st.form("comparison-form"):
+        st.markdown("### Veri Dosyaları")
+        col1, col2 = st.columns(2)
+        with col1:
+            ratings_path = st.text_input("ratings.csv yolu", value=default_ratings)
+        with col2:
+            links_path = st.text_input("links.csv yolu", value=default_links)
+        
+        st.markdown("### Değerlendirme Parametreleri")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            n_users = st.slider("Test edilecek kullanıcı", 20, 200, 100, step=10)
+        with col2:
+            comp_top_n = st.slider("Top-N", 5, 50, default_top_n)
+        with col3:
+            n_hidden = st.number_input("Gizlenecek film", min_value=1, max_value=3, value=1)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            mode = st.selectbox("Mod", options=["standard", "profile"], index=0)
+        with col2:
+            method = st.selectbox("Yöntem", options=["score_avg", "vector_avg"], index=0)
+        with col3:
+            seed = st.number_input("Seed", min_value=0, max_value=9999, value=42)
+        
+        st.markdown("### Benzerlik Eşikleri")
+        st.caption("Karşılaştırmak istediğiniz eşik değerlerini virgülle ayırarak girin (örn: 0.05, 0.10, 0.15, 0.20, 0.30)")
+        
+        thresholds_input = st.text_input(
+            "Eşik değerleri",
+            value="0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40",
+            help="Virgülle ayrılmış ondalık sayılar"
+        )
+        
+        run_comparison = st.form_submit_button("🚀 Karşılaştırmayı Başlat", use_container_width=True)
+    
+    if run_comparison:
+        # Eşikleri parse et
+        try:
+            thresholds = [float(t.strip()) for t in thresholds_input.split(",") if t.strip()]
+            thresholds = sorted(set(thresholds))  # Sırala ve tekrarları kaldır
+        except ValueError:
+            st.error("Geçersiz eşik değerleri. Lütfen virgülle ayrılmış sayılar girin.")
+            return
+        
+        if len(thresholds) < 2:
+            st.error("En az 2 eşik değeri girilmelidir.")
+            return
+        
+        # Dosya kontrolü
+        ratings = Path(ratings_path).expanduser()
+        links = Path(links_path).expanduser()
+        
+        if not ratings.exists():
+            st.error(f"Ratings dosyası bulunamadı: {ratings}")
+            return
+        if not links.exists():
+            st.error(f"Links dosyası bulunamadı: {links}")
+            return
+        
+        # Progress bar ile karşılaştırma yap
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        results: list[ComparisonResult] = []
+        
+        for i, threshold in enumerate(thresholds):
+            status_text.text(f"Eşik {threshold:.2f} değerlendiriliyor... ({i+1}/{len(thresholds)})")
+            progress_bar.progress((i + 1) / len(thresholds))
+            
+            response = services.evaluate_model(
+                ratings_path=ratings,
+                links_path=links,
+                n_users=n_users,
+                top_n=comp_top_n,
+                mode=mode,
+                rating_threshold=4.0,
+                min_liked=5,
+                method=method,
+                seed=seed,
+                n_hidden=n_hidden,
+                smart_hide=True,
+                min_hide_similarity=threshold,
+            )
+            
+            results.append(ComparisonResult(
+                threshold=threshold,
+                hit_rate=response.hit_rate or 0.0,
+                hits=response.hits or 0,
+                tested=response.tested or 0,
+                skipped=response.skipped_no_similar or 0,
+                avg_hide_similarity=response.avg_hide_similarity or 0.0,
+                total_hidden=response.total_hidden or 0,
+                avg_recall=response.avg_recall or 0.0,
+                error=response.error,
+                hit_rate_user=response.hit_rate_user or 0.0,
+                users_with_hit=response.users_with_hit or 0,
+            ))
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Sonuçları session'a kaydet
+        st.session_state["comparison_results"] = results
+        st.session_state["comparison_params"] = {
+            "n_users": n_users,
+            "top_n": comp_top_n,
+            "n_hidden": n_hidden,
+            "mode": mode,
+            "method": method,
+            "seed": seed,
+        }
+        
+        st.success(f"✅ {len(thresholds)} eşik değeri karşılaştırıldı!")
+    
+    # Sonuçları göster
+    results = st.session_state.get("comparison_results")
+    params = st.session_state.get("comparison_params", {})
+    
+    if results:
+        render_comparison_results(results, params)
+
+
+def render_comparison_results(results: list[ComparisonResult], params: dict) -> None:
+    """Karşılaştırma sonuçlarını görselleştir."""
+    
+    # DataFrame oluştur
+    df = pd.DataFrame([
+        {
+            "Eşik": f"{r.threshold:.2f}",
+            "threshold": r.threshold,
+            "HitRate (Film)": r.hit_rate,
+            "HitRate (Kullanıcı)": r.hit_rate_user or 0.0,
+            "Hit Kullanıcı": r.users_with_hit or 0,
+            "Hits": r.hits,
+            "Test Edilen": r.tested,
+            "Skip": r.skipped,
+            "Toplam Gizlenen": r.total_hidden,
+            "Ort. Benzerlik": r.avg_hide_similarity,
+            "Avg Recall": r.avg_recall,
+        }
+        for r in results if not r.error
+    ])
+    
+    if df.empty:
+        st.error("Tüm değerlendirmeler hata ile sonuçlandı.")
+        return
+    
+    # Özet metrikler
+    st.markdown("### 📈 Özet")
+    
+    best_hitrate_user_idx = df["HitRate (Kullanıcı)"].idxmax()
+    best_hitrate_film_idx = df["HitRate (Film)"].idxmax()
+    best_tested_idx = df["Test Edilen"].idxmax()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            "🏆 En Yüksek Kullanıcı HitRate",
+            f"{df.loc[best_hitrate_user_idx, 'HitRate (Kullanıcı)']:.1%}",
+            f"Eşik: {df.loc[best_hitrate_user_idx, 'Eşik']}"
+        )
+    with col2:
+        st.metric(
+            "🎬 En Yüksek Film HitRate",
+            f"{df.loc[best_hitrate_film_idx, 'HitRate (Film)']:.1%}",
+            f"Eşik: {df.loc[best_hitrate_film_idx, 'Eşik']}"
+        )
+    with col3:
+        st.metric(
+            "⚙️ Ayarlar",
+            f"Top-{params.get('top_n', 'N/A')}",
+            f"{params.get('n_users', 'N/A')} kullanıcı"
+        )
+    
+    # Grafikler
+    st.markdown("### 📊 Grafikler")
+    
+    tab_chart1, tab_chart2, tab_chart3 = st.tabs(["HitRate Karşılaştırması", "Test/Skip Dağılımı", "Detaylı Analiz"])
+    
+    with tab_chart1:
+        # İki HitRate karşılaştırması (Kullanıcı vs Film bazlı)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=df["Eşik"],
+            y=df["HitRate (Kullanıcı)"],
+            name="Kullanıcı Bazlı (en az 1 hit)",
+            marker_color="blue"
+        ))
+        fig.add_trace(go.Bar(
+            x=df["Eşik"],
+            y=df["HitRate (Film)"],
+            name="Film Bazlı (hits/total)",
+            marker_color="lightblue"
+        ))
+        fig.update_layout(
+            title="İki HitRate Tanımı Karşılaştırması",
+            xaxis_title="Benzerlik Eşiği",
+            yaxis_title="HitRate",
+            yaxis_tickformat=".1%",
+            barmode="group",
+            height=400,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Line chart - Tüm metrikler
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(
+            x=df["threshold"],
+            y=df["HitRate (Kullanıcı)"],
+            mode="lines+markers",
+            name="HitRate (Kullanıcı)",
+            line=dict(color="blue", width=3),
+            marker=dict(size=10)
+        ))
+        fig2.add_trace(go.Scatter(
+            x=df["threshold"],
+            y=df["HitRate (Film)"],
+            mode="lines+markers",
+            name="HitRate (Film)",
+            line=dict(color="lightblue", width=3),
+            marker=dict(size=10)
+        ))
+        fig2.add_trace(go.Scatter(
+            x=df["threshold"],
+            y=df["Avg Recall"],
+            mode="lines+markers",
+            name="Avg Recall",
+            line=dict(color="green", width=3),
+            marker=dict(size=10)
+        ))
+        fig2.update_layout(
+            title="HitRate ve Recall Trendi",
+            xaxis_title="Benzerlik Eşiği",
+            yaxis_title="Oran",
+            yaxis_tickformat=".1%",
+            height=400,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    with tab_chart2:
+        # Stacked bar chart - Test edilen vs Skip
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=df["Eşik"],
+            y=df["Test Edilen"],
+            name="Test Edilen",
+            marker_color="green"
+        ))
+        fig.add_trace(go.Bar(
+            x=df["Eşik"],
+            y=df["Skip"],
+            name="Skip (Benzer Film Yok)",
+            marker_color="red"
+        ))
+        fig.update_layout(
+            title="Test Edilen vs Skip Edilen Kullanıcılar",
+            xaxis_title="Benzerlik Eşiği",
+            yaxis_title="Kullanıcı Sayısı",
+            barmode="stack",
+            height=400,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Pie chart - Örnek dağılım (en düşük ve en yüksek eşik)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            low_df = df.iloc[0]
+            fig_pie1 = px.pie(
+                names=["Test Edilen", "Skip"],
+                values=[low_df["Test Edilen"], low_df["Skip"]],
+                title=f"Eşik: {low_df['Eşik']}",
+                color_discrete_sequence=["green", "red"]
+            )
+            fig_pie1.update_layout(height=300)
+            st.plotly_chart(fig_pie1, use_container_width=True)
+        
+        with col2:
+            high_df = df.iloc[-1]
+            fig_pie2 = px.pie(
+                names=["Test Edilen", "Skip"],
+                values=[high_df["Test Edilen"], high_df["Skip"]],
+                title=f"Eşik: {high_df['Eşik']}",
+                color_discrete_sequence=["green", "red"]
+            )
+            fig_pie2.update_layout(height=300)
+            st.plotly_chart(fig_pie2, use_container_width=True)
+    
+    with tab_chart3:
+        # Scatter plot - HitRate vs Ort. Benzerlik
+        fig = px.scatter(
+            df,
+            x="Ort. Benzerlik",
+            y="HitRate (Kullanıcı)",
+            size="Test Edilen",
+            color="threshold",
+            hover_data=["Eşik", "Hits", "Skip", "Hit Kullanıcı"],
+            title="Ortalama Gizlenen Film Benzerliği vs Kullanıcı HitRate",
+            labels={"Ort. Benzerlik": "Ort. Gizlenen Film Benzerliği"},
+            color_continuous_scale="Turbo",
+        )
+        fig.update_layout(height=400, yaxis_tickformat=".1%")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Heatmap style table
+        st.markdown("#### Eşik-Metrik İlişkisi")
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=[df["HitRate (Kullanıcı)"].values, df["HitRate (Film)"].values, df["Avg Recall"].values, df["Ort. Benzerlik"].values],
+            x=df["Eşik"].values,
+            y=["HitRate (Kullanıcı)", "HitRate (Film)", "Avg Recall", "Ort. Benzerlik"],
+            colorscale="Viridis",
+            text=[[f"{v:.1%}" for v in df["HitRate (Kullanıcı)"].values],
+                  [f"{v:.1%}" for v in df["HitRate (Film)"].values],
+                  [f"{v:.1%}" for v in df["Avg Recall"].values],
+                  [f"{v:.3f}" for v in df["Ort. Benzerlik"].values]],
+            texttemplate="%{text}",
+            textfont={"size": 12},
+            hoverongaps=False,
+        ))
+        fig_heatmap.update_layout(
+            title="Metrik Heatmap",
+            height=280,
+        )
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    # Tablo
+    st.markdown("### 📋 Detaylı Sonuçlar")
+    display_df = df.copy()
+    display_df["HitRate (Kullanıcı)"] = display_df["HitRate (Kullanıcı)"].apply(lambda x: f"{x:.1%}")
+    display_df["HitRate (Film)"] = display_df["HitRate (Film)"].apply(lambda x: f"{x:.1%}")
+    display_df["Avg Recall"] = display_df["Avg Recall"].apply(lambda x: f"{x:.1%}")
+    display_df["Ort. Benzerlik"] = display_df["Ort. Benzerlik"].apply(lambda x: f"{x:.3f}")
+    display_df = display_df.drop(columns=["threshold"])
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    # CSV indirme
+    csv = df.to_csv(index=False)
+    st.download_button(
+        "📥 Sonuçları CSV olarak indir",
+        data=csv.encode("utf-8"),
+        file_name="comparison_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    
+    # Yorum ve öneri
+    st.markdown("### 💡 Analiz")
+    
+    # En iyi dengeyi bul
+    df_valid = df[df["Test Edilen"] >= 10]  # En az 10 kullanıcı test edilmiş olanlar
+    if not df_valid.empty:
+        # Basit bir skor hesapla: HitRate * log(Test Edilen + 1)
+        import numpy as np
+        df_valid = df_valid.copy()
+        df_valid["score"] = df_valid["HitRate (Kullanıcı)"] * np.log1p(df_valid["Test Edilen"])
+        best_idx = df_valid["score"].idxmax()
+        best_threshold = df_valid.loc[best_idx, "Eşik"]
+        best_hr = df_valid.loc[best_idx, "HitRate (Kullanıcı)"]
+        best_tested = df_valid.loc[best_idx, "Test Edilen"]
+        
+        st.success(f"""
+        **Önerilen Eşik: {best_threshold}**
+        
+        Bu eşik, Kullanıcı HitRate ({best_hr:.1%}) ve test edilen kullanıcı sayısı ({best_tested}) 
+        arasında iyi bir denge sağlıyor.
+        """)
+    
+    st.info("""
+    **Yorumlama Kılavuzu:**
+    - 🟢 **Düşük eşik (0.05-0.10)**: Geniş kullanıcı havuzu, düşük HitRate
+    - 🟡 **Orta eşik (0.15-0.25)**: Dengeli sonuçlar
+    - 🔴 **Yüksek eşik (0.30+)**: Yüksek HitRate, dar kullanıcı havuzu
+    
+    Content-based sistemler için **%15-40 HitRate** normaldir.
+    """)
+
+
 def render_selection_logic_banner() -> None:
     payload = st.session_state.get("last_eval_payload")
     if payload and "inputs" in payload:
         inputs = payload["inputs"]
     else:
         inputs = DEFAULT_EVAL_INPUTS
+    
+    n_hidden = inputs.get('n_hidden', 1)
+    if n_hidden > 1:
+        hidden_text = f"**{n_hidden} film gizlenir (Leave-{n_hidden}-Out)**"
+    else:
+        hidden_text = "bir film gizlenir"
+    
     st.info(
         "Kullanıcı seçme akışı: ratings.csv içindeki kullanıcılardan "
         f"`rating >= {inputs['rating_threshold']}` koşulunu sağlayan ve en az "
         f"{inputs['min_liked']} favori filme sahip olanlar filtrelenir. "
-        f"Rastgele {inputs['n_users']} kullanıcı seçilip her biri için bir film gizlenir; "
-        f"gizlenen film öneri listesinde Top-{inputs['top_n']} içinde yer alırsa hit sayılır "
+        f"Rastgele {inputs['n_users']} kullanıcı seçilip her biri için {hidden_text}; "
+        f"gizlenen filmler öneri listesinde Top-{inputs['top_n']} içinde yer alırsa hit sayılır "
         f"(`mode={inputs['mode']}`, `method={inputs['method']}`, `seed={inputs['seed']}`)."
     )
 
@@ -577,8 +1099,8 @@ def main() -> None:
     render_selection_logic_banner()
     render_global_stats()
 
-    tab_manual, tab_inspect, tab_eval = st.tabs(
-        ["Manuel Öneri", "Model İncelemesi", "Değerlendirme Senaryosu"]
+    tab_manual, tab_inspect, tab_eval, tab_compare = st.tabs(
+        ["Manuel Öneri", "Model İncelemesi", "Değerlendirme Senaryosu", "📊 Eşik Karşılaştırması"]
     )
 
     with tab_manual:
@@ -587,6 +1109,8 @@ def main() -> None:
         render_inspection_tab()
     with tab_eval:
         render_evaluation_tab(method, top_n, feature_flags.get("eval_movielens_filter", False))
+    with tab_compare:
+        render_comparison_tab(method, top_n)
 
     if not summary.ready:
         st.warning("Artefaktlar hazır olmadan sonuçlar eksik olabilir.")

@@ -17,6 +17,10 @@ BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 
 DEFAULT_SOURCE = BASE_DIR / "movies_metadata.csv"
+DATA_DIR = BASE_DIR.parent / "data"
+KEYWORDS_PATH = DATA_DIR / "keywords.csv"
+CREDITS_PATH = DATA_DIR / "credits.csv"
+
 DEFAULT_METADATA_PATH = MODELS_DIR / "metadata.parquet"
 VECTORIZER_PATH = MODELS_DIR / "tfidf_vectorizer.pkl"
 MATRIX_PATH = MODELS_DIR / "tfidf_matrix.npz"
@@ -42,8 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-features",
         type=int,
-        default=12000,
-        help="TF-IDF için maksimum feature sayısı",
+        default=15000,
+        help="TF-IDF için maksimum feature sayısı (varsayılan: 15000)",
     )
     parser.add_argument(
         "--ngram-min",
@@ -67,6 +71,22 @@ def parse_args() -> argparse.Namespace:
         "--to-lower",
         action="store_true",
         help="Content metnini lower() yap",
+    )
+    parser.add_argument(
+        "--no-keywords",
+        action="store_true",
+        help="Keywords.csv'yi kullanma",
+    )
+    parser.add_argument(
+        "--no-credits",
+        action="store_true",
+        help="Credits.csv'yi kullanma (cast/crew)",
+    )
+    parser.add_argument(
+        "--genre-weight",
+        type=int,
+        default=3,
+        help="Genre'ların tekrar sayısı (ağırlık). Varsayılan: 3",
     )
     parser.add_argument(
         "--rebuild",
@@ -109,12 +129,99 @@ def parse_genres(value: str) -> list[str]:
     return []
 
 
+def parse_keywords(value: str) -> list[str]:
+    """Keywords alanını parse et."""
+    if not isinstance(value, str):
+        return []
+    try:
+        items = ast.literal_eval(value)
+        if isinstance(items, list):
+            keywords = [
+                item.get("name", "").strip().replace(" ", "_")
+                for item in items
+                if isinstance(item, dict) and item.get("name")
+            ]
+            return [k for k in keywords if k][:10]  # Max 10 keyword
+    except (ValueError, SyntaxError, TypeError):
+        return []
+    return []
+
+
+def parse_cast(value: str, top_n: int = 5) -> list[str]:
+    """Cast alanından ilk N oyuncuyu al."""
+    if not isinstance(value, str):
+        return []
+    try:
+        items = ast.literal_eval(value)
+        if isinstance(items, list):
+            cast = [
+                item.get("name", "").strip().replace(" ", "_")
+                for item in items[:top_n]
+                if isinstance(item, dict) and item.get("name")
+            ]
+            return [c for c in cast if c]
+    except (ValueError, SyntaxError, TypeError):
+        return []
+    return []
+
+
+def parse_crew(value: str) -> list[str]:
+    """Crew'dan yönetmeni al."""
+    if not isinstance(value, str):
+        return []
+    try:
+        items = ast.literal_eval(value)
+        if isinstance(items, list):
+            directors = [
+                item.get("name", "").strip().replace(" ", "_")
+                for item in items
+                if isinstance(item, dict) and item.get("job") == "Director"
+            ]
+            return directors[:2]  # Max 2 yönetmen
+    except (ValueError, SyntaxError, TypeError):
+        return []
+    return []
+
+
+def load_keywords() -> pd.DataFrame | None:
+    """Keywords dosyasını yükle."""
+    if not KEYWORDS_PATH.exists():
+        print(f"   ⚠️ Keywords dosyası bulunamadı: {KEYWORDS_PATH}")
+        return None
+    df = pd.read_csv(KEYWORDS_PATH)
+    df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+    df = df.dropna(subset=["id"])
+    return df
+
+
+def load_credits() -> pd.DataFrame | None:
+    """Credits dosyasını yükle."""
+    if not CREDITS_PATH.exists():
+        print(f"   ⚠️ Credits dosyası bulunamadı: {CREDITS_PATH}")
+        return None
+    df = pd.read_csv(CREDITS_PATH)
+    df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+    df = df.dropna(subset=["id"])
+    return df
+
+
 def prepare_metadata(
     df: pd.DataFrame,
     *,
     min_content_chars: int,
     to_lower: bool,
+    use_keywords: bool = True,
+    use_credits: bool = True,
+    genre_weight: int = 3,
 ) -> pd.DataFrame:
+    """
+    Metadata'yı hazırla ve zenginleştirilmiş content string oluştur.
+    
+    Args:
+        genre_weight: Genre'ların kaç kez tekrarlanacağı (ağırlıklandırma için)
+        use_keywords: Keywords.csv'den anahtar kelimeler ekle
+        use_credits: Credits.csv'den oyuncu/yönetmen ekle
+    """
     work = df.copy()
     work["id"] = pd.to_numeric(work.get("id"), errors="coerce").astype("Int64")
     work = work.dropna(subset=["id"])
@@ -135,13 +242,62 @@ def prepare_metadata(
     work["title"] = work["title"].fillna("Untitled").astype(str)
     work["overview"] = work["overview"].fillna("").astype(str)
     work["genres_list"] = work["genres"].apply(parse_genres)
-    work["genres_str"] = work["genres_list"].apply(lambda xs: " ".join(xs))
+    
+    # Genre'ları ağırlıklandır (tekrarla)
+    work["genres_str"] = work["genres_list"].apply(
+        lambda xs: " ".join(xs * genre_weight) if xs else ""
+    )
+
+    # Keywords ekle
+    work["keywords_str"] = ""
+    if use_keywords:
+        keywords_df = load_keywords()
+        if keywords_df is not None:
+            keywords_df["keywords_list"] = keywords_df["keywords"].apply(parse_keywords)
+            keywords_df["keywords_str"] = keywords_df["keywords_list"].apply(
+                lambda xs: " ".join(xs * 2) if xs else ""  # Keywords 2x tekrar
+            )
+            keywords_map = keywords_df.set_index("id")["keywords_str"].to_dict()
+            work["keywords_str"] = work["id"].map(keywords_map).fillna("")
+            print(f"   ✅ Keywords eklendi: {len(keywords_map):,} film")
+
+    # Cast/Crew ekle
+    work["cast_str"] = ""
+    work["director_str"] = ""
+    if use_credits:
+        credits_df = load_credits()
+        if credits_df is not None:
+            credits_df["cast_list"] = credits_df["cast"].apply(parse_cast)
+            credits_df["cast_str"] = credits_df["cast_list"].apply(
+                lambda xs: " ".join(xs * 2) if xs else ""  # Cast 2x tekrar
+            )
+            credits_df["director_list"] = credits_df["crew"].apply(parse_crew)
+            credits_df["director_str"] = credits_df["director_list"].apply(
+                lambda xs: " ".join(xs * 3) if xs else ""  # Yönetmen 3x tekrar
+            )
+            cast_map = credits_df.set_index("id")["cast_str"].to_dict()
+            director_map = credits_df.set_index("id")["director_str"].to_dict()
+            work["cast_str"] = work["id"].map(cast_map).fillna("")
+            work["director_str"] = work["id"].map(director_map).fillna("")
+            print(f"   ✅ Cast/Crew eklendi: {len(cast_map):,} film")
 
     if to_lower:
         work["overview"] = work["overview"].str.lower()
         work["genres_str"] = work["genres_str"].str.lower()
+        work["keywords_str"] = work["keywords_str"].str.lower()
+        work["cast_str"] = work["cast_str"].str.lower()
+        work["director_str"] = work["director_str"].str.lower()
 
-    work["content"] = (work["genres_str"] + " " + work["overview"]).str.strip()
+    # Zenginleştirilmiş content string
+    # Format: GENRES (3x) + DIRECTOR (3x) + CAST (2x) + KEYWORDS (2x) + OVERVIEW
+    work["content"] = (
+        work["genres_str"] + " " +
+        work["director_str"] + " " +
+        work["cast_str"] + " " +
+        work["keywords_str"] + " " +
+        work["overview"]
+    ).str.strip()
+    
     work = work[work["content"].str.len() >= min_content_chars]
     work = work.drop_duplicates(subset=["id"]).reset_index(drop=True)
 
@@ -198,15 +354,30 @@ def run_pipeline(args: argparse.Namespace) -> None:
             "Artefaktlar zaten mevcut: "
             f"{', '.join(existing)}. Yeniden üretmek için --rebuild kullanın."
         )
-    print("📂 Metadata yükleniyor...")
+    
+    print("=" * 60)
+    print("🎬 CONTENT-BASED MODEL OLUŞTURMA")
+    print("=" * 60)
+    
+    print("\n📂 Metadata yükleniyor...")
     raw_df = load_raw_metadata(args.source)
     print(f"   → {len(raw_df):,} satır okundu")
 
-    print("🧹 Veri temizleniyor...")
+    print("\n🧹 Veri zenginleştiriliyor...")
+    use_keywords = not args.no_keywords
+    use_credits = not args.no_credits
+    
+    print(f"   • Keywords kullanımı: {'✅ Evet' if use_keywords else '❌ Hayır'}")
+    print(f"   • Cast/Crew kullanımı: {'✅ Evet' if use_credits else '❌ Hayır'}")
+    print(f"   • Genre ağırlığı: {args.genre_weight}x")
+    
     prepared = prepare_metadata(
         raw_df,
         min_content_chars=args.min_content_chars,
         to_lower=args.to_lower,
+        use_keywords=use_keywords,
+        use_credits=use_credits,
+        genre_weight=args.genre_weight,
     )
     if prepared.empty:
         raise RuntimeError("Temizlenen metadata boş kaldı!")
@@ -252,6 +423,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "tfidf_ngram_range": [args.ngram_min, args.ngram_max],
         "min_content_chars": args.min_content_chars,
         "lowercased": bool(args.to_lower),
+        "use_keywords": use_keywords,
+        "use_credits": use_credits,
+        "genre_weight": args.genre_weight,
         "metadata_path": str(metadata_path),
         "vectorizer_path": str(VECTORIZER_PATH),
         "matrix_path": str(MATRIX_PATH),

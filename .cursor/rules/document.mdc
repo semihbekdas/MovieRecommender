@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+Bir görevi bitirip mesajı sonlandırmadan önce README.md veya vb. dosyaları kontrol et. Eğer bir dosya değiştirilmişse, README.md dosyasını güncelle.
