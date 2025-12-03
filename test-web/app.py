@@ -763,6 +763,10 @@ def render_comparison_tab(default_method: str, default_top_n: int) -> None:
             "mode": mode,
             "method": method,
             "seed": seed,
+            "rating_threshold": 4.0,
+            "min_liked": 5,
+            "ratings_path": str(ratings),
+            "links_path": str(links),
         }
         
         st.success(f"✅ {len(thresholds)} eşik değeri karşılaştırıldı!")
@@ -992,10 +996,29 @@ def render_comparison_results(results: list[ComparisonResult], params: dict) -> 
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    # CSV indirme
-    csv = df.to_csv(index=False)
+    # CSV indirme - tüm parametrelerle birlikte
+    export_df = df.copy()
+    
+    # Parametreleri her satıra ekle
+    export_df["n_users"] = params.get("n_users", "")
+    export_df["top_n"] = params.get("top_n", "")
+    export_df["n_hidden"] = params.get("n_hidden", "")
+    export_df["mode"] = params.get("mode", "")
+    export_df["method"] = params.get("method", "")
+    export_df["seed"] = params.get("seed", "")
+    export_df["rating_threshold"] = params.get("rating_threshold", 4.0)
+    export_df["min_liked"] = params.get("min_liked", 5)
+    export_df["ratings_path"] = params.get("ratings_path", "")
+    export_df["links_path"] = params.get("links_path", "")
+    
+    # Kolonları yeniden sırala - önce sonuçlar, sonra parametreler
+    param_cols = ["n_users", "top_n", "n_hidden", "mode", "method", "rating_threshold", "min_liked", "seed", "ratings_path", "links_path"]
+    result_cols = [c for c in export_df.columns if c not in param_cols]
+    export_df = export_df[result_cols + param_cols]
+    
+    csv = export_df.to_csv(index=False)
     st.download_button(
-        "📥 Sonuçları CSV olarak indir",
+        "📥 Sonuçları CSV olarak indir (tüm parametrelerle)",
         data=csv.encode("utf-8"),
         file_name="comparison_results.csv",
         mime="text/csv",
