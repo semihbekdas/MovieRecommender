@@ -196,13 +196,13 @@ def _apply_movielens_postprocessing(
     if allowed_ids:
         tmdb_series = pd.to_numeric(result["tmdb_id"], errors="coerce").astype("Int64")
         mask = tmdb_series.isin(list(allowed_ids))
-        result = result[mask]
+        result = result[mask].copy()  # ← .copy() eklendi
         if result.empty:
             return result
     if "similarity" in result.columns and "vote_count" in result.columns:
         vote_counts = result["vote_count"].fillna(0).astype(float)
         similarity = result["similarity"].fillna(0).astype(float)
-        result = result.copy()
+        # result = result.copy()  ← Bu satır artık gereksiz
         result["pop_weighted_score"] = similarity * (1.0 + np.log1p(vote_counts))
         result = result.sort_values(
             ["pop_weighted_score", "similarity"], ascending=False
