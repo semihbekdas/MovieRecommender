@@ -4,9 +4,11 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
+import inspect
 from pathlib import Path
 from typing import Literal, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -18,9 +20,11 @@ if str(CONTENT_BASED_DIR) not in sys.path:
 
 import evaluate_content as ec  # type: ignore  # noqa: E402  (lazy path injection)
 import recommender_content as rc  # type: ignore  # noqa: E402
+import user_profile as up  # type: ignore  # noqa: E402
 
 DEFAULT_RATINGS_PATH = ec.DEFAULT_RATINGS
 DEFAULT_LINKS_PATH = ec.DEFAULT_LINKS
+_EVAL_HAS_RESTRICT = "restrict_to_links" in inspect.signature(ec.evaluate).parameters
 
 
 MethodLiteral = Literal["score_avg", "vector_avg"]
@@ -54,11 +58,41 @@ class RecommendationResponse:
 
 @dataclass
 class EvaluationResponse:
-    hit_rate: float | None
+    hit_rate: float | None  # Film bazlı: hits / total_hidden
     hits: int | None
     tested: int | None
     samples: list[dict] | None
     error: str | None = None
+    # Leave-K-Out için ek alanlar
+    n_hidden: int | None = None
+    total_hidden: int | None = None
+    avg_recall: float | None = None
+    avg_precision: float | None = None
+    # Smart hide için ek alanlar
+    smart_hide: bool | None = None
+    min_hide_similarity: float | None = None
+    avg_hide_similarity: float | None = None
+    skipped_no_similar: int | None = None
+    # Kullanıcı bazlı metrikler (yeni)
+    hit_rate_user: float | None = None  # Kullanıcı bazlı: users_with_hit / tested
+    users_with_hit: int | None = None  # En az 1 hit alan kullanıcı sayısı
+
+
+@dataclass
+class ComparisonResult:
+    """Farklı benzerlik eşikleri için karşılaştırma sonucu."""
+    threshold: float
+    hit_rate: float  # Film bazlı
+    hits: int
+    tested: int
+    skipped: int
+    avg_hide_similarity: float
+    total_hidden: int
+    avg_recall: float
+    error: str | None = None
+    # Kullanıcı bazlı metrikler (yeni)
+    hit_rate_user: float | None = None
+    users_with_hit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -146,11 +180,44 @@ def load_bundle(force_reload: bool = False) -> rc.ArtifactBundle:
     return rc.load_artifacts(force_reload=force_reload)
 
 
+@lru_cache(maxsize=4)
+def get_movielens_tmdb_ids(path: str) -> set[int]:
+    links = ec.load_links(Path(path))
+    return set(links["tmdbId"].astype(int).tolist())
+
+
+def _apply_movielens_postprocessing(
+    df: pd.DataFrame | None,
+    allowed_ids: set[int] | None,
+) -> pd.DataFrame | None:
+    if df is None or df.empty:
+        return df
+    result = df
+    if allowed_ids:
+        tmdb_series = pd.to_numeric(result["tmdb_id"], errors="coerce").astype("Int64")
+        mask = tmdb_series.isin(list(allowed_ids))
+        result = result[mask].copy()  # ← .copy() eklendi
+        if result.empty:
+            return result
+    if "similarity" in result.columns and "vote_count" in result.columns:
+        vote_counts = result["vote_count"].fillna(0).astype(float)
+        similarity = result["similarity"].fillna(0).astype(float)
+        # result = result.copy()  ← Bu satır artık gereksiz
+        result["pop_weighted_score"] = similarity * (1.0 + np.log1p(vote_counts))
+        result = result.sort_values(
+            ["pop_weighted_score", "similarity"], ascending=False
+        ).drop(columns=["pop_weighted_score"])
+    return result
+
+
 def make_recommendations(
     titles: Sequence[str],
     *,
     top_n: int = rc.DEFAULT_TOP_N,
     method: MethodLiteral = "score_avg",
+    restrict_to_movielens: bool = False,
+    movielens_links_path: Path | None = None,
+    use_profile_backend: bool = False,
 ) -> RecommendationResponse:
     cleaned_titles = [t.strip() for t in titles if t.strip()]
     if not cleaned_titles:
@@ -177,16 +244,35 @@ def make_recommendations(
     used_fallback = False
     dataframe: pd.DataFrame | None = None
 
-    if not movie_ids:
-        used_fallback = True
-        dataframe = rc.get_popular_fallback(top_n=top_n)
-    elif len(movie_ids) == 1:
-        dataframe = rc.recommend_single(movie_ids[0], top_n=top_n, method=method)
+    if use_profile_backend:
+        profile_df, missing_profile = up.recommend_with_profile(
+            cleaned_titles,
+            top_n=top_n,
+        )
+        missing = missing_profile
+        dataframe = profile_df
+        if not movie_ids or dataframe is None or dataframe.empty:
+            used_fallback = True
     else:
-        dataframe = rc.recommend_multi(movie_ids, top_n=top_n, method=method)
-        if dataframe.empty:
+        if not movie_ids:
             used_fallback = True
             dataframe = rc.get_popular_fallback(top_n=top_n)
+        elif len(movie_ids) == 1:
+            dataframe = rc.recommend_single(movie_ids[0], top_n=top_n, method=method)
+        else:
+            dataframe = rc.recommend_multi(movie_ids, top_n=top_n, method=method)
+            if dataframe.empty:
+                used_fallback = True
+                dataframe = rc.get_popular_fallback(top_n=top_n)
+
+    if restrict_to_movielens:
+        links_path = movielens_links_path or DEFAULT_LINKS_PATH
+        allowed_ids = get_movielens_tmdb_ids(str(links_path))
+        dataframe = _apply_movielens_postprocessing(dataframe, allowed_ids)
+        if dataframe is None or dataframe.empty:
+            used_fallback = True
+            fallback = rc.get_popular_fallback(top_n=top_n)
+            dataframe = _apply_movielens_postprocessing(fallback, allowed_ids)
 
     return RecommendationResponse(
         dataframe=dataframe,
@@ -259,27 +345,47 @@ def evaluate_model(
     min_liked: int,
     method: MethodLiteral,
     seed: int,
+    restrict_to_movielens: bool = False,
+    n_hidden: int = 1,
+    smart_hide: bool = True,
+    min_hide_similarity: float = 0.05,
 ) -> EvaluationResponse:
+    eval_kwargs = dict(
+        ratings_path=ratings_path,
+        links_path=links_path,
+        n_users=n_users,
+        top_n=top_n,
+        mode=mode,
+        rating_threshold=rating_threshold,
+        min_liked=min_liked,
+        method=method,
+        seed=seed,
+        n_hidden=n_hidden,
+        smart_hide=smart_hide,
+        min_hide_similarity=min_hide_similarity,
+    )
+    if restrict_to_movielens and _EVAL_HAS_RESTRICT:
+        eval_kwargs["restrict_to_links"] = True
+
     try:
-        result = ec.evaluate(
-            ratings_path,
-            links_path,
-            n_users=n_users,
-            top_n=top_n,
-            mode=mode,
-            rating_threshold=rating_threshold,
-            min_liked=min_liked,
-            method=method,
-            seed=seed,
-        )
+        result = ec.evaluate(**eval_kwargs)
     except Exception as exc:
-        return EvaluationResponse(
-            hit_rate=None,
-            hits=None,
-            tested=None,
-            samples=None,
-            error=str(exc),
-        )
+        if (
+            restrict_to_movielens
+            and not _EVAL_HAS_RESTRICT
+            and isinstance(exc, TypeError)
+            and "restrict_to_links" in str(exc)
+        ):
+            eval_kwargs.pop("restrict_to_links", None)
+            result = ec.evaluate(**eval_kwargs)
+        else:
+            return EvaluationResponse(
+                hit_rate=None,
+                hits=None,
+                tested=None,
+                samples=None,
+                error=str(exc),
+            )
 
     return EvaluationResponse(
         hit_rate=result["hit_rate"],
@@ -287,7 +393,108 @@ def evaluate_model(
         tested=result["tested"],
         samples=result.get("samples", []),
         error=None,
+        n_hidden=result.get("n_hidden", 1),
+        total_hidden=result.get("total_hidden"),
+        avg_recall=result.get("avg_recall"),
+        avg_precision=result.get("avg_precision"),
+        smart_hide=result.get("smart_hide"),
+        min_hide_similarity=result.get("min_hide_similarity"),
+        avg_hide_similarity=result.get("avg_hide_similarity"),
+        skipped_no_similar=result.get("skipped_no_similar"),
+        # Kullanıcı bazlı metrikler (yeni)
+        hit_rate_user=result.get("hit_rate_user"),
+        users_with_hit=result.get("users_with_hit"),
     )
+
+
+def evaluate_multiple_thresholds(
+    *,
+    ratings_path: Path,
+    links_path: Path,
+    n_users: int,
+    top_n: int,
+    mode: EvalModeLiteral,
+    rating_threshold: float,
+    min_liked: int,
+    method: MethodLiteral,
+    seed: int,
+    thresholds: list[float],
+    n_hidden: int = 1,
+    restrict_to_movielens: bool = False,
+) -> list[ComparisonResult]:
+    """
+    Farklı benzerlik eşikleri ile karşılaştırmalı değerlendirme yap.
+    
+    Args:
+        thresholds: Test edilecek benzerlik eşikleri listesi (örn: [0.10, 0.20, 0.30, 0.40])
+    
+    Returns:
+        Her eşik için ComparisonResult listesi
+    """
+    results = []
+    
+    for threshold in thresholds:
+        try:
+            response = evaluate_model(
+                ratings_path=ratings_path,
+                links_path=links_path,
+                n_users=n_users,
+                top_n=top_n,
+                mode=mode,
+                rating_threshold=rating_threshold,
+                min_liked=min_liked,
+                method=method,
+                seed=seed,
+                restrict_to_movielens=restrict_to_movielens,
+                n_hidden=n_hidden,
+                smart_hide=True,
+                min_hide_similarity=threshold,
+            )
+            
+            if response.error:
+                results.append(ComparisonResult(
+                    threshold=threshold,
+                    hit_rate=0.0,
+                    hits=0,
+                    tested=0,
+                    skipped=0,
+                    avg_hide_similarity=0.0,
+                    total_hidden=0,
+                    avg_recall=0.0,
+                    error=response.error,
+                    hit_rate_user=0.0,
+                    users_with_hit=0,
+                ))
+            else:
+                results.append(ComparisonResult(
+                    threshold=threshold,
+                    hit_rate=response.hit_rate or 0.0,
+                    hits=response.hits or 0,
+                    tested=response.tested or 0,
+                    skipped=response.skipped_no_similar or 0,
+                    avg_hide_similarity=response.avg_hide_similarity or 0.0,
+                    total_hidden=response.total_hidden or 0,
+                    avg_recall=response.avg_recall or 0.0,
+                    error=None,
+                    hit_rate_user=response.hit_rate_user or 0.0,
+                    users_with_hit=response.users_with_hit or 0,
+                ))
+        except Exception as exc:
+            results.append(ComparisonResult(
+                threshold=threshold,
+                hit_rate=0.0,
+                hits=0,
+                tested=0,
+                skipped=0,
+                avg_hide_similarity=0.0,
+                total_hidden=0,
+                avg_recall=0.0,
+                error=str(exc),
+                hit_rate_user=0.0,
+                users_with_hit=0,
+            ))
+    
+    return results
 
 
 def _extract_year(value: object) -> str | None:
@@ -334,4 +541,111 @@ def get_title_options(limit: int = 5000, min_vote_count: int = 20) -> tuple[Titl
             )
         )
     return tuple(options)
+
+
+@dataclass
+class UserGenreProfile:
+    """Kullanıcının genre dağılımı."""
+    user_id: int
+    top_genres: list[str]  # Genre isimleri
+    genre_counts: list[int]  # Her genre için film sayısı
+    genre_weights: list[float]  # Normalize edilmiş ağırlıklar (0-1)
+    total_movies: int
+
+
+def get_user_genre_profile(
+    user_id: int,
+    ratings_path: Path,
+    links_path: Path,
+    rating_threshold: float = 4.0,
+    top_k: int = 5,
+) -> UserGenreProfile | None:
+    """
+    Belirli bir kullanıcının en çok izlediği/beğendiği genre'ları hesapla.
+    Radar chart için kullanılacak.
+    """
+    try:
+        # Ratings ve links yükle
+        ratings_df = ec.load_ratings(ratings_path)
+        links_df = ec.load_links(links_path)
+        bundle = rc.load_artifacts()
+        
+        # Kullanıcının beğendiği filmler
+        user_ratings = ratings_df[ratings_df["userId"] == user_id]
+        liked = user_ratings[user_ratings["rating"] >= rating_threshold]
+        
+        if liked.empty:
+            return None
+        
+        # MovieId -> TmdbId mapping
+        movie_map = links_df.drop_duplicates(subset="movieId").set_index("movieId")["tmdbId"].to_dict()
+        
+        # Genre sayımı
+        genre_counter: dict[str, int] = {}
+        total_movies = 0
+        
+        for _, row in liked.iterrows():
+            movie_id = int(row["movieId"])
+            tmdb_id = movie_map.get(movie_id)
+            
+            if tmdb_id is None:
+                continue
+            
+            # Metadata'dan genre al
+            movie_meta = bundle.metadata[bundle.metadata["tmdb_id"] == tmdb_id]
+            if movie_meta.empty:
+                continue
+            
+            genres_str = movie_meta.iloc[0].get("genres", "")
+            if pd.isna(genres_str) or not genres_str:
+                continue
+            
+            # Genre'ları parse et ve unique yap (weighted genre'lar tekrarlı olabilir)
+            raw_genres = [g.strip() for g in str(genres_str).split() if g.strip()]
+            genres = list(dict.fromkeys(raw_genres))  # Sırayı koruyarak unique yap
+            total_movies += 1
+            
+            for genre in genres:
+                genre_counter[genre] = genre_counter.get(genre, 0) + 1
+        
+        if not genre_counter:
+            return None
+        
+        # En çok izlenen top_k genre
+        sorted_genres = sorted(genre_counter.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        
+        top_genres = [g[0] for g in sorted_genres]
+        genre_counts = [g[1] for g in sorted_genres]
+        
+        # Normalize et (max değere göre 0-1 arası)
+        max_count = max(genre_counts) if genre_counts else 1
+        genre_weights = [c / max_count for c in genre_counts]
+        
+        return UserGenreProfile(
+            user_id=user_id,
+            top_genres=top_genres,
+            genre_counts=genre_counts,
+            genre_weights=genre_weights,
+            total_movies=total_movies,
+        )
+    except Exception:
+        return None
+
+
+def get_multiple_user_genre_profiles(
+    user_ids: list[int],
+    ratings_path: Path,
+    links_path: Path,
+    rating_threshold: float = 4.0,
+    top_k: int = 5,
+) -> list[UserGenreProfile]:
+    """Birden fazla kullanıcının genre profillerini al."""
+    profiles = []
+    for uid in user_ids:
+        profile = get_user_genre_profile(
+            uid, ratings_path, links_path, rating_threshold, top_k
+        )
+        if profile:
+            profiles.append(profile)
+    return profiles
 
