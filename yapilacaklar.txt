@@ -1,9 +1,25 @@
-Şimdi olayı “bu yöntem diğerlerinden nasıl farklı?” diye toparlayalım.
+model (Association Rules / ARL):
+Ratings_small.csv’deki beğenilen filmlerden (örneğin rating ≥ 4) kullanıcı–film 0/1 matrisi kuruyoruz.
+“Bu filmi sevenlerin sepetinde birlikte en sık hangi filmler görülüyor?” sorusuna cevap veriyor.
+Teknik olarak user–movie 0/1 matrisinden Apriori ile sık görülen film kümelerini çıkarıp association_rules ile support–confidence–lift hesaplıyoruz. Öneriler, seçilen filmlerin antecedent tarafında olduğu kurallardan, en yüksek score = confidence × lift değerine göre geliyor.
 
-Senin sorduğun:
-**UserId kullanan İşbirlikçi Filtreleme (user-based Collaborative Filtering)**
+model (Item-based CF):
+Ratings_small.csv’deki kullanıcı puanlarına bakarak filmler arası benzerlik kuruyoruz.
+“Bu filmi beğenenler en çok hangi diğer filmleri de beğenmiş?” sorusuna cevap veriyor.
+Teknik olarak user–movie rating matrisi kurup filmler arası cosine similarity hesabı yapıyorsun. Öneri, en yüksek similarity’e göre geliyor.
 
-Bunu 3 şeyle karşılaştıralım:
+model (Content-based):
+Movies_metadata.csv’deki tür ve overview bilgilerine bakarak benzer filmleri buluyoruz.
+“İçerik olarak bu filme benzeyen hangi filmler var?” sorusuna cevap veriyor.
+Tür + overview metnini TF-IDF ile vektörleştirip filmler arası cosine similarity hesaplarsın. Öneri, en benzer içeriklere göre geliyor.
+
+Yani kısaca:
+
+model → birliktelik kuralı / sepet tabanlı benzerlik
+
+model → kullanıcı davranışı (rating benzerliği) tabanlı benzerlik
+
+model → film içeriği tabanlı benzerlik
 
 ---
 
