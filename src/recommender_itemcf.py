@@ -19,10 +19,8 @@ RAW_DATA_DIR = ROOT_DIR / "data" / "raw"
 MODELS_DIR = ROOT_DIR / "models"
 
 # Dosya Yolları
-# ratings.csv varsa onu, yoksa small versiyonunu kullan
-RATINGS_PATH = RAW_DATA_DIR / "ratings.csv" 
-if not RATINGS_PATH.exists():
-    RATINGS_PATH = RAW_DATA_DIR / "ratings_small.csv"
+# RATINGS_PATH = RAW_DATA_DIR / "ratings.csv"  <-- Bunu yoruma al veya sil
+RATINGS_PATH = RAW_DATA_DIR / "ratings_small.csv" # <-- Sadece bunu kullan
 
 MAPPING_PATH = MODELS_DIR / "movie_mapping.pkl"    # ARL'den gelen ortak mapping
 ITEM_SIM_PATH = MODELS_DIR / "item_similarity.pkl" # Bizim üreteceğimiz model
