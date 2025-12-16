@@ -1,0 +1,5 @@
+# pack-refs with: peeled fully-peeled sorted 
+32e6ba82a9e5de34e8a9d943f23317a3a1c49c5a refs/remotes/origin/Item-based-V1
+a1d104223ee465df8fd77fbb8563616b0c4db626 refs/remotes/origin/main
+2dafd917297bb6edd88ac16564fbf0955efd8408 refs/remotes/origin/model3-v1
+43b422948188bb272c558843605e9c04695805fc refs/remotes/origin/plan-test-web
