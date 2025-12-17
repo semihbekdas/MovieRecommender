@@ -1,0 +1,16 @@
+{
+  "name": "movie-recommender-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\" \"npm run start:ai\"",
+    "start:backend": "cd backend && npm start",
+    "start:frontend": "cd frontend && npm run dev",
+    "start:ai": "cd ai-models/MovieRecommender && py api_server.py",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "seed": "cd backend && npm run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

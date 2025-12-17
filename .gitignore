@@ -13,3 +13,7 @@ __pycache__/
 venv/
 .env
 .venv/
+node_modules/
+
+dataset/credits.csv
+dataset/ratings.csv
