@@ -16,8 +16,8 @@ import pickle
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 
-DEFAULT_SOURCE = BASE_DIR / "movies_metadata.csv"
-DATA_DIR = BASE_DIR.parent / "data"
+DEFAULT_SOURCE = BASE_DIR.parent / "data" / "raw" / "movies_metadata.csv"
+DATA_DIR = BASE_DIR.parent / "data" / "raw"
 KEYWORDS_PATH = DATA_DIR / "keywords.csv"
 CREDITS_PATH = DATA_DIR / "credits.csv"
 
