@@ -8,6 +8,9 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 
+// Track if we've already warned about missing API key
+let posterKeyWarningShown = false;
+
 // User-Agent to mimic a real browser (still used for IMDb fallback)
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -21,7 +24,10 @@ const HEADERS = {
  */
 async function scrapeTmdb(title, year) {
   if (!TMDB_API_KEY || TMDB_API_KEY === 'YOUR_TMDB_API_KEY_HERE') {
-    console.warn('[PosterService] TMDB API Key is missing or invalid. Please check .env file.');
+    if (!posterKeyWarningShown) {
+      console.warn('[PosterService] TMDB API Key is missing. Set TMDB_API_KEY in backend/.env to enable poster fetching.');
+      posterKeyWarningShown = true;
+    }
     return null;
   }
 

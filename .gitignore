@@ -21,6 +21,12 @@ ai-models/MovieRecommender/Content-Based/models/
 *.sqlite
 *.sqlite3
 *.db
+backend/database.sqlite
+
+# ===============================
+# 🔧 Oluşturulan Dosyalar (Generated)
+# ===============================
+backend/src/seed/credits_clean.json
 
 # ===============================
 # 🐍 Python

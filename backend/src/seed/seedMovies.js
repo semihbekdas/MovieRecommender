@@ -4,7 +4,7 @@ const csv = require('csv-parser');
 const { Movie } = require('../models');
 const sequelize = require('../config/db');
 
-const moviesCsvPath = path.join(__dirname, '../../../dataset/movies_metadata.csv');
+const moviesCsvPath = path.join(__dirname, '../../../data/movies_metadata.csv');
 const creditsJsonPath = path.join(__dirname, 'credits_clean.json');
 
 // Helper to parse the Python-dictionary-like strings in the CSV
@@ -51,6 +51,10 @@ const importMovies = async () => {
     
     console.log('Reading Movies CSV...');
     
+    // Track seen tmdbIds to avoid duplicates
+    const seenTmdbIds = new Set();
+    let skippedCount = 0;
+
     fs.createReadStream(moviesCsvPath)
       .pipe(csv())
       .on('data', (row) => {
@@ -59,6 +63,21 @@ const importMovies = async () => {
         const releaseDate = row.release_date;
         const year = releaseDate ? new Date(releaseDate).getFullYear() : null;
         if (isNaN(year)) return;
+
+        // Parse tmdbId and validate
+        const tmdbId = parseInt(row.id);
+        
+        // Skip if tmdbId is invalid or already seen (duplicate)
+        if (isNaN(tmdbId) || tmdbId <= 0) {
+            skippedCount++;
+            return;
+        }
+        
+        if (seenTmdbIds.has(tmdbId)) {
+            skippedCount++;
+            return;
+        }
+        seenTmdbIds.add(tmdbId);
 
         let genres = '';
         try {
@@ -70,13 +89,12 @@ const importMovies = async () => {
 
         const posterUrl = row.poster_path ? `https://image.tmdb.org/t/p/w500${row.poster_path}` : null;
         const imdbUrl = row.imdb_id ? `https://www.imdb.com/title/${row.imdb_id}/` : null;
-        const tmdbId = parseInt(row.id);
 
         // Get credits from map
         const credits = creditsMap.get(tmdbId) || { actors: '', director: '' };
 
         movies.push({
-            tmdbId: tmdbId || null,
+            tmdbId: tmdbId,
             title: row.title,
             year: year || 0,
             genres: genres,
@@ -88,10 +106,12 @@ const importMovies = async () => {
         });
       })
       .on('end', async () => {
-        console.log(`Parsed ${movies.length} movies. Inserting into database...`);
+        console.log(`Parsed ${movies.length} valid movies. (${skippedCount} rows skipped due to invalid/duplicate IDs)`);
+        console.log('Inserting into database...');
         
         const chunkSize = 500;
         let insertedCount = 0;
+        let errorCount = 0;
 
         for (let i = 0; i < movies.length; i += chunkSize) {
             const chunk = movies.slice(i, i + chunkSize);
@@ -102,11 +122,23 @@ const importMovies = async () => {
                     console.log(`Inserted ${insertedCount} movies...`);
                 }
             } catch (err) {
-                console.error(`Error inserting batch starting at index ${i}:`, err.message);
+                errorCount++;
+                // Try inserting one by one to find problematic movie
+                for (const movie of chunk) {
+                    try {
+                        await Movie.create(movie);
+                        insertedCount++;
+                    } catch (singleErr) {
+                        console.error(`Failed to insert: ${movie.title} (tmdbId: ${movie.tmdbId}) - ${singleErr.message}`);
+                    }
+                }
             }
         }
         
-        console.log('Movies imported successfully.');
+        console.log(`Movies imported successfully. Total: ${insertedCount} movies.`);
+        if (errorCount > 0) {
+            console.log(`${errorCount} batches had issues but were handled individually.`);
+        }
         process.exit();
       });
 

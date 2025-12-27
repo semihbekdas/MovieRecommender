@@ -201,6 +201,7 @@ router.post('/me/watchlist', authMiddleware, async (req, res) => {
     const user = await User.findByPk(req.user.id);
     const movie = await Movie.findByPk(movieId);
     
+    if (!user) return res.status(401).json({ error: 'User not found. Please login again.' });
     if (!movie) return res.status(404).json({ error: 'Movie not found' });
     
     await user.addWatchlist(movie);
@@ -218,6 +219,7 @@ router.delete('/me/watchlist/:movieId', authMiddleware, async (req, res) => {
     const user = await User.findByPk(req.user.id);
     const movie = await Movie.findByPk(movieId);
     
+    if (!user) return res.status(401).json({ error: 'User not found. Please login again.' });
     if (!movie) return res.status(404).json({ error: 'Movie not found' });
     
     await user.removeWatchlist(movie);
@@ -235,6 +237,7 @@ router.post('/me/favorites', authMiddleware, async (req, res) => {
     const user = await User.findByPk(req.user.id);
     const movie = await Movie.findByPk(movieId);
     
+    if (!user) return res.status(401).json({ error: 'User not found. Please login again.' });
     if (!movie) return res.status(404).json({ error: 'Movie not found' });
     
     await user.addFavorites(movie);
@@ -252,6 +255,7 @@ router.delete('/me/favorites/:movieId', authMiddleware, async (req, res) => {
     const user = await User.findByPk(req.user.id);
     const movie = await Movie.findByPk(movieId);
     
+    if (!user) return res.status(401).json({ error: 'User not found. Please login again.' });
     if (!movie) return res.status(404).json({ error: 'Movie not found' });
     
     await user.removeFavorites(movie);

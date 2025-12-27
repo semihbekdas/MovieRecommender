@@ -5,7 +5,7 @@ import os
 
 # Paths
 base_dir = os.path.dirname(os.path.abspath(__file__))
-csv_path = os.path.join(base_dir, '../../../dataset/credits.csv')
+csv_path = os.path.join(base_dir, '../../../data/credits.csv')
 json_path = os.path.join(base_dir, 'credits_clean.json')
 
 print(f"Reading {csv_path}...")

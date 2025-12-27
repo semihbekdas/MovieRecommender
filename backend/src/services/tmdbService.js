@@ -5,6 +5,9 @@ require('dotenv').config();
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
+// Track if we've already warned about missing API key
+let tmdbKeyWarningShown = false;
+
 /**
  * Fetches the current rating from TMDB.
  * Does NOT save the rating to the database, but will save the tmdbId if found.
@@ -13,7 +16,10 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
  */
 async function getTmdbRating(movie) {
   if (!TMDB_API_KEY) {
-    console.log('TMDB_API_KEY is missing');
+    if (!tmdbKeyWarningShown) {
+      console.log('[TMDB] API Key is missing. Set TMDB_API_KEY in backend/.env to enable ratings.');
+      tmdbKeyWarningShown = true;
+    }
     return null;
   }
 

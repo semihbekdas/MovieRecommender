@@ -59,15 +59,32 @@ router.get('/model1', authMiddleware, async (req, res) => {
         }
       }
     });
+
+    // Log missing movies for debugging
+    const foundTitles = movies.map(m => m.title);
+    const missingTitles = recommendedTitles.filter(t => !foundTitles.includes(t));
+    if (missingTitles.length > 0) {
+      console.log('[Model 1] Movies not found in DB:', missingTitles);
+    }
+
+    // 5. Create a map of title -> score for ordering
+    const scoreMap = new Map();
+    recommendations.forEach(r => {
+      scoreMap.set(r.title, r.score || 0);
+    });
     
-    // Ensure posters are available and fetch ratings
+    // 6. Ensure posters are available and fetch ratings
     const moviesWithRatings = await Promise.all(movies.map(async (movie) => {
       await ensureMoviePoster(movie);
       const tmdbRating = await getTmdbRating(movie);
       const movieData = movie.toJSON();
       movieData.tmdbRating = tmdbRating;
+      movieData.score = scoreMap.get(movie.title) || 0;
       return movieData;
     }));
+
+    // 7. Sort by score (descending) to preserve original order
+    moviesWithRatings.sort((a, b) => b.score - a.score);
 
     res.json(moviesWithRatings);
   } catch (error) {
@@ -110,7 +127,7 @@ router.get('/model2', authMiddleware, async (req, res) => {
       return res.json([]);
     }
 
-    // 3. Get recommended titles
+    // 3. Get recommended titles with their similarity scores
     const recommendedTitles = recommendations.map(r => r.title);
 
     // 4. Fetch full movie objects from our DB
@@ -121,15 +138,32 @@ router.get('/model2', authMiddleware, async (req, res) => {
         }
       }
     });
+
+    // Log missing movies for debugging
+    const foundTitles = movies.map(m => m.title);
+    const missingTitles = recommendedTitles.filter(t => !foundTitles.includes(t));
+    if (missingTitles.length > 0) {
+      console.log('[Model 2] Movies not found in DB:', missingTitles);
+    }
     
-    // Ensure posters are available and fetch ratings
+    // 5. Create a map of title -> similarity for ordering
+    const similarityMap = new Map();
+    recommendations.forEach(r => {
+      similarityMap.set(r.title, r.similarity || 0);
+    });
+
+    // 6. Ensure posters are available and fetch ratings
     const moviesWithRatings = await Promise.all(movies.map(async (movie) => {
       await ensureMoviePoster(movie);
       const tmdbRating = await getTmdbRating(movie);
       const movieData = movie.toJSON();
       movieData.tmdbRating = tmdbRating;
+      movieData.similarity = similarityMap.get(movie.title) || 0;
       return movieData;
     }));
+
+    // 7. Sort by similarity (descending) to preserve original order
+    moviesWithRatings.sort((a, b) => b.similarity - a.similarity);
 
     res.json(moviesWithRatings);
 
@@ -184,15 +218,32 @@ router.get('/model3', authMiddleware, async (req, res) => {
         }
       }
     });
+
+    // Log missing movies for debugging
+    const foundTitles = movies.map(m => m.title);
+    const missingTitles = recommendedTitles.filter(t => !foundTitles.includes(t));
+    if (missingTitles.length > 0) {
+      console.log('[Model 3] Movies not found in DB:', missingTitles);
+    }
+
+    // 5. Create a map of title -> similarity for ordering
+    const similarityMap = new Map();
+    recommendations.forEach(r => {
+      similarityMap.set(r.title, r.similarity || r.score || 0);
+    });
     
-    // Ensure posters are available and fetch ratings
+    // 6. Ensure posters are available and fetch ratings
     const moviesWithRatings = await Promise.all(movies.map(async (movie) => {
       await ensureMoviePoster(movie);
       const tmdbRating = await getTmdbRating(movie);
       const movieData = movie.toJSON();
       movieData.tmdbRating = tmdbRating;
+      movieData.similarity = similarityMap.get(movie.title) || 0;
       return movieData;
     }));
+
+    // 7. Sort by similarity (descending) to preserve original order
+    moviesWithRatings.sort((a, b) => b.similarity - a.similarity);
 
     res.json(moviesWithRatings);
 
