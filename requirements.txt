@@ -1,10 +1,24 @@
-pandas>=2.0
+# MovieMind - Python Bağımlılıkları
+# Tüm AI modelleri ve Streamlit uygulamaları için gerekli paketler
+
+# Veri İşleme
+pandas>=2.2
 numpy>=1.26
 scipy>=1.11
+pyarrow>=15.0
+
+# Makine Öğrenmesi
 scikit-learn>=1.4
 mlxtend>=0.23
-pyarrow>=15.0
-streamlit>=1.30
+
+# Web Framework (AI API Server)
+flask>=3.0
+flask-cors>=4.0
+
+# Streamlit Arayüzleri
+streamlit>=1.38
 plotly>=5.18
+
+# Görselleştirme & Diğer
 networkx>=3.2
 

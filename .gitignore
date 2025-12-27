@@ -1,15 +1,83 @@
-data/raw/*.csv
-data/*.csv
-data/content-based/*.csv
+# ===============================
+# 📁 Veri Dosyaları (Büyük boyutlu)
+# ===============================
+data/
 Content-Based/*.csv
+ai-models/MovieRecommender/data/
 
-# Content-Based artefaktları
+# ===============================
+# 🤖 Model Artefaktları (Binary)
+# ===============================
+*.pkl
+*.npz
+*.parquet
 Content-Based/models/
+ai-models/MovieRecommender/models/
+ai-models/MovieRecommender/Content-Based/models/
 
+# ===============================
+# 💾 Veritabanı
+# ===============================
+*.sqlite
+*.sqlite3
+*.db
+backend/database.sqlite
+
+# ===============================
+# 🔧 Oluşturulan Dosyalar (Generated)
+# ===============================
+backend/src/seed/credits_clean.json
+
+# ===============================
+# 🐍 Python
+# ===============================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.Python
+*.egg-info/
+dist/
+build/
+
+# ===============================
+# 📦 Node.js
+# ===============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===============================
+# ⚡ Vite / Frontend Build
+# ===============================
+.vite/
+dist/
+
+# ===============================
+# 🔐 Environment & Secrets
+# ===============================
+.env
+.env.local
+.env.*.local
+*.pem
+
+# ===============================
+# 🖥️ OS Generated
+# ===============================
 .DS_Store
 **/.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
 
-__pycache__/
-venv/
-.env
-.venv/
+# ===============================
+# 🛠️ IDE / Editor
+# ===============================
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

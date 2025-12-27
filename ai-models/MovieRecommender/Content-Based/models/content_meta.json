@@ -1,0 +1,19 @@
+{
+  "generated_at": "2025-12-15T12:02:09.128587Z",
+  "source": "C:\\Users\\Kerem\\Desktop\\Projects\\MovieRecommender\\ai-models\\MovieRecommender\\data\\raw\\movies_metadata.csv",
+  "record_count": 45403,
+  "feature_count": 15000,
+  "tfidf_max_features": 15000,
+  "tfidf_ngram_range": [
+    1,
+    2
+  ],
+  "min_content_chars": 20,
+  "lowercased": false,
+  "use_keywords": true,
+  "use_credits": true,
+  "genre_weight": 3,
+  "metadata_path": "C:\\Users\\Kerem\\Desktop\\Projects\\MovieRecommender\\ai-models\\MovieRecommender\\Content-Based\\models\\metadata.parquet",
+  "vectorizer_path": "C:\\Users\\Kerem\\Desktop\\Projects\\MovieRecommender\\ai-models\\MovieRecommender\\Content-Based\\models\\tfidf_vectorizer.pkl",
+  "matrix_path": "C:\\Users\\Kerem\\Desktop\\Projects\\MovieRecommender\\ai-models\\MovieRecommender\\Content-Based\\models\\tfidf_matrix.npz"
+}

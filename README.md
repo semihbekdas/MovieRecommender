@@ -1,55 +1,46 @@
-# 🎬 MovieRecommender - Film Öneri Sistemi
+# MovieMind 🎬
 
-Farklı öneri algoritmalarını (Association Rules, Content-Based Filtering) kullanarak kişiselleştirilmiş film önerileri sunan kapsamlı bir film öneri sistemi.
+MovieMind, modern bir React ön yüzü, güçlü bir Node.js arka yüzü ve gelişmiş Python tabanlı yapay zeka modellerini birleştiren, kişiselleştirilmiş film önerileri sunan kapsamlı bir film öneri sistemidir.
 
 ---
 
 ## 📋 İçindekiler
 
-- [Proje Hakkında](#-proje-hakkında)
 - [Özellikler](#-özellikler)
+- [Teknolojiler](#️-teknolojiler)
 - [Proje Yapısı](#-proje-yapısı)
-- [Gereksinimler](#-gereksinimler)
 - [Kurulum](#-kurulum)
-- [Kullanım](#-kullanım)
-- [Öneri Algoritmaları](#-öneri-algoritmaları)
-- [Streamlit Arayüzleri](#-streamlit-arayüzleri)
-- [Geliştirme Durumu](#-geliştirme-durumu)
-- [Gelecek Planlar](#-gelecek-planlar)
-- [Veri Kaynağı](#-veri-kaynağı)
+- [Uygulamayı Çalıştırma](#️-uygulamayı-çalıştırma)
+- [Frontend](#-frontend)
+- [Backend](#-backend)
+- [AI Models](#-ai-models-yapay-zeka-modelleri)
+- [API Endpoints](#-api-endpoints)
+- [Öneri Algoritmaları](#-öneri-algoritmaları-detayları)
+- [Katkıda Bulunanlar](#-katkıda-bulunanlar)
+- [Lisans](#-lisans)
 
 ---
 
-## 🎯 Proje Hakkında
+## 🚀 Özellikler
 
-Bu proje, farklı makine öğrenmesi tekniklerini kullanarak film öneri sistemi geliştirmeyi amaçlar. Kaggle'daki "The Movies Dataset" üzerinde çalışır ve şu anda iki farklı öneri yaklaşımı içerir:
-
-1. **Association Rules (Birliktelik Kuralları):** Kullanıcıların birlikte beğendiği filmleri analiz ederek "X filmini seven Y filmini de sever" kuralları çıkarır.
-2. **Content-Based Filtering (İçerik Tabanlı):** Film türleri ve açıklamalarına göre benzer içerikli filmler önerir.
+- **Çoklu Model Önerileri**:
+  - **Model 1: Birliktelik Kuralları (Association Rules - Apriori):** Kullanıcıların birlikte beğendiği filmleri analiz ederek "X filmini seven Y filmini de sever" kuralları çıkarır.
+  - **Model 2: İçerik Tabanlı Filtreleme (Content-Based Filtering):** Film türleri ve açıklamalarına göre benzer içerikli filmler önerir.
+  - **Model 3: Öğe Tabanlı İşbirlikçi Filtreleme (Item-Based Collaborative Filtering):** Rating benzerliğine dayalı öneriler sunar.
+- **Kullanıcı Profilleri**: İzleme listeleri, favoriler ve arkadaş sistemleri.
+- **Sosyal Özellikler**: Arkadaş ekleme ve listelerini görüntüleme.
+- **Gerçek Zamanlı Veri**: Güncel puanlar ve posterler için TMDB entegrasyonu.
+- **Modern Arayüz**: Tailwind CSS ile oluşturulmuş karanlık temalı (dark mode), duyarlı tasarım.
 
 ---
 
-## ✨ Özellikler
+## 🛠️ Teknolojiler
 
-### ✅ Tamamlanan Özellikler
-
-| Özellik | Açıklama | Durum |
-|---------|----------|-------|
-| **Association Rules Backend** | Apriori algoritması ile birliktelik kuralları çıkarımı | ✅ Tamamlandı |
-| **Content-Based Backend** | TF-IDF + Cosine Similarity ile içerik benzerliği | ✅ Tamamlandı |
-| **Ana Öneri Arayüzü** | ARL tabanlı film önerileri sunan Streamlit uygulaması | ✅ Tamamlandı |
-| **Dataset Insights** | Veri analizi ve görselleştirme sayfası | ✅ Tamamlandı |
-| **Content-Based Test Paneli** | İçerik tabanlı modelin test ve değerlendirme arayüzü | ✅ Tamamlandı |
-| **HitRate Değerlendirmesi** | Model performans metriği hesaplama | ✅ Tamamlandı |
-| **CLI Araçları** | Komut satırından model oluşturma ve öneri alma | ✅ Tamamlandı |
-
-### 🔄 Geliştirme Aşamasında
-
-| Özellik | Açıklama | Durum |
-|---------|----------|-------|
-| **Item-based CF** | Rating benzerliğine dayalı işbirlikçi filtreleme | 📋 Planlandı |
-| **Algoritma Entegrasyonu** | Tüm algoritmaları tek arayüzde birleştirme | 📋 Planlandı |
-| **Model Karşılaştırması** | 3 farklı algoritmanın sonuçlarını yan yana gösterme | 📋 Planlandı |
+| Katman | Teknolojiler |
+|--------|--------------|
+| **Frontend** | React 19, Vite, TypeScript, Tailwind CSS, React Router |
+| **Backend** | Node.js, Express, SQLite, Sequelize, JWT |
+| **AI/ML** | Python, Flask, Pandas, Scikit-learn, Mlxtend |
 
 ---
 
@@ -57,291 +48,299 @@ Bu proje, farklı makine öğrenmesi tekniklerini kullanarak film öneri sistemi
 
 ```
 MovieRecommender/
-├── 📂 app/                              # Streamlit uygulamaları
-│   ├── Home_🎬_Recommender.py           # Ana öneri sayfası (ARL tabanlı)
-│   └── pages/
-│       └── 1_📊_Dataset_Insights.py     # Veri analizi sayfası
+├── 📂 frontend/                    # React Frontend Uygulaması
+│   ├── src/
+│   │   ├── api/                    # Axios API yapılandırması
+│   │   ├── components/             # React bileşenleri
+│   │   │   └── Navbar.tsx
+│   │   ├── context/                # React Context (Auth)
+│   │   │   └── AuthContext.tsx
+│   │   ├── pages/                  # Sayfa bileşenleri
+│   │   │   ├── Home.tsx            # Ana sayfa
+│   │   │   ├── Login.tsx           # Giriş sayfası
+│   │   │   ├── Register.tsx        # Kayıt sayfası
+│   │   │   ├── Profile.tsx         # Kullanıcı profili
+│   │   │   ├── MovieDetail.tsx     # Film detay sayfası
+│   │   │   └── UserProfile.tsx     # Diğer kullanıcı profili
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── package.json
+│   └── vite.config.ts
 │
-├── 📂 Content-Based/                    # İçerik tabanlı öneri modülü
-│   ├── data_pipeline.py                 # Veri işleme ve TF-IDF oluşturma
-│   ├── recommender_content.py           # Öneri motoru
-│   ├── user_profile.py                  # Kullanıcı profili tabanlı öneri
-│   ├── evaluate_content.py              # Model değerlendirme (HitRate)
-│   ├── README.md                        # Modül dokümantasyonu
-│   ├── YOL_HARITASI.md                  # Kavramsal açıklamalar
-│   └── models/                          # Oluşturulan model dosyaları
-│       ├── tfidf_vectorizer.pkl         # TF-IDF Vectorizer
-│       ├── tfidf_matrix.npz             # Sparse TF-IDF matrisi
-│       ├── metadata.parquet             # İşlenmiş film metadata'sı
-│       └── content_meta.json            # Model meta bilgileri
+├── 📂 backend/                     # Node.js Backend API
+│   ├── src/
+│   │   ├── config/                 # Yapılandırma dosyaları
+│   │   │   ├── auth.js             # JWT ayarları
+│   │   │   ├── db.js               # Veritabanı bağlantısı
+│   │   │   └── recommenderServices.js  # AI servis bağlantısı
+│   │   ├── middleware/             # Express middleware
+│   │   │   └── authMiddleware.js   # JWT doğrulama
+│   │   ├── models/                 # Sequelize modelleri
+│   │   │   ├── User.js
+│   │   │   ├── Movie.js
+│   │   │   ├── Rating.js
+│   │   │   └── Friendship.js
+│   │   ├── routes/                 # API rotaları
+│   │   │   ├── auth.js             # /api/auth
+│   │   │   ├── users.js            # /api/users
+│   │   │   ├── friends.js          # /api/friends
+│   │   │   ├── movies.js           # /api/movies
+│   │   │   └── recommendations.js  # /api/recommendations
+│   │   ├── services/               # Harici servisler
+│   │   │   ├── posterService.js
+│   │   │   └── tmdbService.js
+│   │   ├── seed/                   # Veritabanı seed
+│   │   │   └── seedMovies.js
+│   │   └── server.js               # Ana sunucu dosyası
+│   ├── database.sqlite
+│   └── package.json
 │
-├── 📂 src/                              # Backend kaynak kodları
-│   └── recommender_arl.py               # Association Rules modülü
+├── 📂 ai-models/MovieRecommender/  # Python AI Modelleri
+│   ├── api_server.py               # Flask API sunucusu
+│   ├── src/
+│   │   ├── recommender_arl.py      # Association Rules modülü
+│   │   └── recommender_itemcf.py   # Item-Based CF modülü
+│   ├── Content-Based/              # İçerik tabanlı öneri modülü
+│   │   ├── data_pipeline.py        # Veri işleme ve TF-IDF
+│   │   ├── recommender_content.py  # Öneri motoru
+│   │   ├── user_profile.py         # Kullanıcı profili öneri
+│   │   ├── evaluate_content.py     # Model değerlendirme
+│   │   └── models/                 # Model dosyaları
+│   ├── models/                     # ARL model dosyaları
+│   │   ├── association_rules.pkl
+│   │   ├── movie_mapping.pkl
+│   │   └── item_similarity.pkl
+│   ├── app/                        # Streamlit uygulamaları
+│   │   ├── Home_🎬_Recommender.py
+│   │   └── pages/
+│   └── requirements.txt
 │
-├── 📂 test-web/                         # Content-Based test arayüzü
-│   ├── app.py                           # Streamlit test paneli
-│   ├── services.py                      # Backend servisleri
-│   ├── README.md                        # Kullanım kılavuzu
-│   └── requirements.txt                 # Bağımlılıklar
+├── 📂 data/                        # Veri dosyaları
+│   ├── movies_metadata.csv
+│   ├── ratings.csv / ratings_small.csv
+│   ├── links.csv / links_small.csv
+│   ├── keywords.csv
+│   └── credits.csv
 │
-├── 📂 data/                             # Ham veri dosyaları
-│   ├── ratings_small.csv                # Kullanıcı puanlamaları (küçük)
-│   ├── ratings.csv                      # Kullanıcı puanlamaları (tam)
-│   ├── movies_metadata.csv              # Film bilgileri
-│   ├── links_small.csv                  # Film ID eşleşmeleri (küçük)
-│   ├── links.csv                        # Film ID eşleşmeleri (tam)
-│   ├── keywords.csv                     # Film anahtar kelimeleri
-│   ├── credits.csv                      # Oyuncu/yönetmen bilgileri
-│   └── raw/                             # Ham veri yedekleri
-│
-├── requirements.txt                     # Proje bağımlılıkları
-├── yapilacaklar.txt                     # Algoritma açıklamaları
-└── yapilacaklarplan.md                  # Detaylı proje planı
+├── package.json                    # Root package.json (monorepo scripts)
+├── requirements.txt                # Python bağımlılıkları (tüm AI modelleri için)
+└── README.md
 ```
 
 ---
 
-## 📦 Gereksinimler
-
-- **Python:** 3.10 veya üstü
-- **Temel Kütüphaneler:**
-
-```
-pandas>=2.0
-numpy>=1.26
-scipy>=1.11
-scikit-learn>=1.4
-mlxtend>=0.23
-pyarrow>=15.0
-streamlit>=1.30
-plotly>=5.18
-networkx>=3.2
-```
-
----
-
-## 🚀 Kurulum
+## 📦 Kurulum
 
 ### 1. Depoyu Klonlayın
 
 ```bash
-git clone https://github.com/kullanici/MovieRecommender.git
+git clone https://github.com/semihbekdas/MovieRecommender.git
 cd MovieRecommender
 ```
 
-### 2. Sanal Ortam Oluşturun (Önerilir)
+### 2. Bağımlılıkları Yükleyin
+
+Ana dizinde şu komutu çalıştırarak hem kök dizin, hem backend hem de frontend bağımlılıklarını yükleyebilirsiniz:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+npm run install:all
 ```
 
-### 3. Bağımlılıkları Yükleyin
+### 3. Python Kurulumu
+
+Python'un yüklü olduğundan emin olun. Gerekli Python paketlerini ana dizinden yükleyin:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Veri Dosyalarını Hazırlayın
+### 4. Veritabanını Seed Edin (Opsiyonel)
 
-Kaggle'dan "The Movies Dataset"i indirin ve `data/` klasörüne yerleştirin:
-- [The Movies Dataset - Kaggle](https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset)
+Film verilerini veritabanına yüklemek için:
 
-Gerekli dosyalar:
-- `ratings_small.csv` veya `ratings.csv`
-- `movies_metadata.csv`
-- `links_small.csv` veya `links.csv`
+```bash
+npm run seed
+```
 
 ---
 
-## 💻 Kullanım
+## 🏃‍♂️ Uygulamayı Çalıştırma
 
-### Association Rules Modeli
-
-#### 1. Model Oluşturma
+Tüm servisleri (Frontend, Backend, AI Sunucusu) ana dizinden tek bir komutla başlatabilirsiniz:
 
 ```bash
-python src/recommender_arl.py
+npm start
 ```
 
-Bu komut şunları yapar:
-- Ham verileri yükler
-- Film eşleştirme tablosu oluşturur
-- Birliktelik kurallarını çıkarır
-- Model dosyalarını `models/` klasörüne kaydeder
+| Servis | URL | Açıklama |
+|--------|-----|----------|
+| **Frontend** | http://localhost:5173 | React web uygulaması |
+| **Backend** | http://localhost:3000 | Node.js REST API |
+| **AI Sunucusu** | http://localhost:9001 | Python Flask ML API |
 
-#### 2. Streamlit Arayüzü
+---
+
+## 💻 Frontend
+
+React, TypeScript ve Tailwind CSS ile geliştirilmiş modern web arayüzü.
+
+### Teknolojiler
+
+- **React 19** - UI kütüphanesi
+- **Vite** - Build aracı ve dev server
+- **TypeScript** - Tip güvenliği
+- **Tailwind CSS** - Utility-first CSS framework
+- **React Router** - Sayfa yönlendirme
+- **Axios** - HTTP istemcisi
+
+### Sayfalar
+
+| Sayfa | Dosya | Açıklama |
+|-------|-------|----------|
+| Ana Sayfa | `Home.tsx` | Film listeleme ve arama |
+| Giriş | `Login.tsx` | Kullanıcı girişi |
+| Kayıt | `Register.tsx` | Yeni kullanıcı kaydı |
+| Profil | `Profile.tsx` | Kullanıcı profili, favoriler, izleme listesi |
+| Film Detay | `MovieDetail.tsx` | Film bilgileri ve puanlama |
+| Kullanıcı Profili | `UserProfile.tsx` | Diğer kullanıcıların profilleri |
+
+### Ayrı Çalıştırma
 
 ```bash
-cd app
+cd frontend
+npm run dev
+```
+
+---
+
+## ⚙️ Backend
+
+Node.js ve Express ile geliştirilmiş RESTful API.
+
+### Teknolojiler
+
+- **Node.js** - Runtime
+- **Express** - Web framework
+- **SQLite** - Veritabanı
+- **Sequelize** - ORM
+- **JWT** - Kimlik doğrulama
+- **bcryptjs** - Şifre hashleme
+
+### Veritabanı Modelleri
+
+| Model | Açıklama |
+|-------|----------|
+| `User` | Kullanıcı bilgileri (username, email, password) |
+| `Movie` | Film bilgileri (title, overview, genres, poster) |
+| `Rating` | Kullanıcı puanlamaları |
+| `Friendship` | Arkadaşlık ilişkileri |
+
+### Ayrı Çalıştırma
+
+```bash
+cd backend
+npm start
+```
+
+---
+
+## 🤖 AI Models (Yapay Zeka Modelleri)
+
+Python ve Flask ile geliştirilmiş makine öğrenmesi modelleri.
+
+### Teknolojiler
+
+- **Python 3.10+** - Programlama dili
+- **Flask** - Web framework
+- **Pandas** - Veri işleme
+- **Scikit-learn** - ML kütüphanesi
+- **Mlxtend** - Association Rules için
+
+### Modeller
+
+| Model | Dosya | Açıklama |
+|-------|-------|----------|
+| Association Rules | `src/recommender_arl.py` | Apriori tabanlı birliktelik kuralları |
+| Content-Based | `Content-Based/recommender_content.py` | TF-IDF + Cosine Similarity |
+| Item-Based CF | `src/recommender_itemcf.py` | İşbirlikçi filtreleme |
+
+### Streamlit Arayüzleri
+
+```bash
+cd ai-models/MovieRecommender/app
 streamlit run Home_🎬_Recommender.py
 ```
 
-### Content-Based Modeli
-
-#### 1. Model Oluşturma
+### Ayrı Çalıştırma
 
 ```bash
-cd Content-Based
-python data_pipeline.py
-```
-
-#### 2. CLI ile Öneri Alma
-
-```bash
-python recommender_content.py --titles "Inception,The Matrix"
-```
-
-#### 3. Model Değerlendirme
-
-```bash
-python evaluate_content.py --n-users 200 --top-n 10
-```
-
-#### 4. Test Paneli
-
-```bash
-cd test-web
-streamlit run app.py
+cd ai-models/MovieRecommender
+python api_server.py
 ```
 
 ---
 
-## 🤖 Öneri Algoritmaları
+## 🌐 API Endpoints
+
+### Backend API (Port 3000)
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| POST | `/api/auth/register` | Kullanıcı kaydı |
+| POST | `/api/auth/login` | Kullanıcı girişi |
+| GET | `/api/users/:id` | Kullanıcı bilgisi |
+| GET | `/api/movies` | Film listesi |
+| GET | `/api/movies/:id` | Film detayı |
+| POST | `/api/movies/:id/rate` | Film puanlama |
+| GET | `/api/friends` | Arkadaş listesi |
+| POST | `/api/friends/add` | Arkadaş ekleme |
+| GET | `/api/recommendations` | Öneri alma |
+
+### AI API (Port 9001)
+
+| Method | Endpoint | Model | Açıklama |
+|--------|----------|-------|----------|
+| POST | `/recommend` | Association Rules | Birliktelik kuralları tabanlı öneri |
+| POST | `/recommend/content` | Content-Based | İçerik tabanlı öneri |
+| POST | `/recommend/itemcf` | Item-Based CF | İşbirlikçi filtreleme önerisi |
+| GET | `/health` | - | Sunucu durumu kontrolü |
+
+### Örnek İstek (AI API)
+
+```bash
+curl -X POST http://localhost:9001/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"liked_movies": ["Inception", "The Dark Knight"], "top_n": 5}'
+```
+
+---
+
+## 🤖 Öneri Algoritmaları Detayları
+
+Bu proje, Kaggle'daki "The Movies Dataset" üzerinde çalışan farklı makine öğrenmesi tekniklerini kullanır.
 
 ### 1. Association Rules (Birliktelik Kuralları)
 
-**Dosya:** `src/recommender_arl.py`
-
 **Nasıl Çalışır:**
-1. Kullanıcıların beğendiği filmleri (rating ≥ 4.0) belirler
-2. Kullanıcı-Film boolean matrisi oluşturur
-3. Apriori algoritması ile sık film setlerini bulur
-4. Association Rules ile "X → Y" kuralları çıkarır
-5. Support, Confidence ve Lift metriklerine göre filtreler
-
-**Metrikler:**
-- **Support:** Kuralın ne kadar sık görüldüğü
-- **Confidence:** X'i beğenen kullanıcıların Y'yi de beğenme olasılığı
-- **Lift:** Kuralın rastgele birliktelikten ne kadar güçlü olduğu
-
-**Örnek Kullanım:**
-
-```python
-from src.recommender_arl import recommend_with_association_rules
-
-liked_movies = ["Inception", "Interstellar", "The Dark Knight"]
-recommendations, missing = recommend_with_association_rules(liked_movies, top_n=10)
-print(recommendations)
-```
-
----
+1. Kullanıcıların beğendiği filmleri (puan ≥ 4.0) belirler.
+2. Apriori algoritması ile sık film setlerini bulur.
+3. "X → Y" kuralları çıkarır (Support, Confidence ve Lift metriklerine göre).
 
 ### 2. Content-Based Filtering (İçerik Tabanlı)
 
-**Dosya:** `Content-Based/recommender_content.py`
+**Nasıl Çalışır:**
+1. Film türleri (genres) ve açıklamalarını (overview) birleştirir.
+2. TF-IDF vektörleştirme ile sayısal temsil oluşturur.
+3. Cosine Similarity ile film benzerliklerini hesaplar.
+4. Soğuk başlangıç (cold-start) problemi olmadan, sadece içeriğe bakarak öneri yapar.
+
+### 3. Item-Based Collaborative Filtering (Öğe Tabanlı İşbirlikçi Filtreleme)
 
 **Nasıl Çalışır:**
-1. Film türleri (genres) ve açıklamalarını (overview) birleştirir
-2. TF-IDF vektörleştirme ile sayısal temsil oluşturur
-3. Cosine Similarity ile film benzerliklerini hesaplar
-4. Seçilen filmlere en benzer içerikteki filmleri önerir
-
-**Özellikler:**
-- Rating verisi gerektirmez (cold-start problemi yok)
-- Sadece film içeriğine bakarak çalışır
-- Kullanıcı profili oluşturma desteği
-
-**Örnek Kullanım:**
-
-```python
-from Content_Based.recommender_content import cli_recommend
-
-titles = ["Inception", "The Matrix"]
-recommendations = cli_recommend(titles, top_n=10, method="score_avg")
-print(recommendations)
-```
-
----
-
-## 🖥️ Streamlit Arayüzleri
-
-### 1. Ana Öneri Sayfası (`app/Home_🎬_Recommender.py`)
-
-**Özellikler:**
-- Film arama ve seçme
-- Association Rules tabanlı öneriler
-- Score, Confidence, Lift metrikleri
-- Görsel öneri kartları
-- Detaylı öneri tablosu
-
-**Çalıştırma:**
-```bash
-streamlit run app/Home_🎬_Recommender.py
-```
-
-### 2. Dataset Insights (`app/pages/1_📊_Dataset_Insights.py`)
-
-**Özellikler:**
-- Veri seti istatistikleri
-- En popüler filmler grafiği
-- Tür dağılımı analizi
-- Association Rules görselleştirmeleri
-- 3D Rule Space grafiği
-- Film birliktelik ağı (NetworkX)
-
-### 3. Content-Based Test Paneli (`test-web/app.py`)
-
-**Özellikler:**
-- Manuel film öneri testi
-- Model inceleme araçları
-- HitRate değerlendirme senaryosu
-- JSON çıktı indirme
-
----
-
-## 📊 Geliştirme Durumu
-
-### ✅ Tamamlanan Modüller
-
-| Modül | Dosya | Açıklama |
-|-------|-------|----------|
-| ARL Backend | `src/recommender_arl.py` | Apriori + Association Rules |
-| ARL Arayüzü | `app/Home_🎬_Recommender.py` | Streamlit öneri sayfası |
-| Dataset Analizi | `app/pages/1_📊_Dataset_Insights.py` | Görselleştirmeler |
-| Content Pipeline | `Content-Based/data_pipeline.py` | TF-IDF oluşturma |
-| Content Recommender | `Content-Based/recommender_content.py` | Öneri motoru |
-| User Profile | `Content-Based/user_profile.py` | Profil tabanlı öneri |
-| Evaluation | `Content-Based/evaluate_content.py` | HitRate hesaplama |
-| Test Panel | `test-web/app.py` | Content-Based test UI |
-
-### 📋 Yapılacaklar
-
-- [ ] Item-based Collaborative Filtering modülü (`src/recommender_itemcf.py`)
-- [ ] 3 algoritmanın ana arayüzde entegrasyonu
-- [ ] Algoritma karşılaştırma bölümü
-- [ ] Hybrid öneri sistemi
-- [ ] API endpoint'leri (FastAPI)
-- [ ] Docker container desteği
-
----
-
-## 🔮 Gelecek Planlar
-
-### Kısa Vadeli
-1. **Item-based CF Modülü:** Rating benzerliğine dayalı işbirlikçi filtreleme
-2. **Algoritma Seçimi:** Tek arayüzden 3 farklı algoritma seçebilme
-3. **Karşılaştırma Tablosu:** Aynı filmler için farklı algoritma sonuçları
-
-### Orta Vadeli
-1. **Hybrid Model:** 3 algoritmanın ağırlıklı birleşimi
-2. **keywords.csv Entegrasyonu:** Anahtar kelime tabanlı benzerlik
-3. **credits.csv Entegrasyonu:** Oyuncu/yönetmen benzerliği
-
-### Uzun Vadeli
-1. **Deep Learning:** Neural Collaborative Filtering
-2. **Gerçek Zamanlı Güncelleme:** Streaming veri desteği
-3. **A/B Test Altyapısı:** Farklı modelleri karşılaştırma
+1. Kullanıcıların filmlere verdiği puanları (ratings) kullanır.
+2. User-Item matrisi oluşturur.
+3. Filmler arasındaki benzerliği Cosine Similarity ile hesaplar (Bu filmi beğenenler, şu filmi de beğendi mantığı).
+4. Kullanıcının geçmişte yüksek puan verdiği filmlere matematiksel olarak en yakın (benzer) filmleri önerir.
 
 ---
 
@@ -352,50 +351,18 @@ Bu proje Kaggle'daki **The Movies Dataset**'i kullanmaktadır:
 - **Kaynak:** [The Movies Dataset - Kaggle](https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset)
 - **Film Sayısı:** ~45,000 film
 - **Rating Sayısı:** ~26 milyon (tam) / ~100,000 (küçük)
-- **Kullanıcı Sayısı:** ~270,000 (tam) / ~700 (küçük)
 
 ---
 
-## 🛠️ Teknik Detaylar
+## 👥 Katkıda Bulunanlar
 
-### Kullanılan Teknolojiler
+Bu proje, farklı uzmanlık alanlarının birleşimiyle ortaya çıkmıştır:
 
-| Kategori | Teknoloji |
-|----------|-----------|
-| Programlama Dili | Python 3.10+ |
-| Veri İşleme | Pandas, NumPy |
-| Makine Öğrenmesi | scikit-learn, mlxtend |
-| Metin İşleme | TF-IDF Vectorizer |
-| Görselleştirme | Plotly, NetworkX |
-| Web Arayüzü | Streamlit |
-| Veri Formatları | CSV, Parquet, Pickle |
-
-### Model Dosyaları
-
-| Dosya | Boyut (yaklaşık) | Açıklama |
-|-------|------------------|----------|
-| `movie_mapping.pkl` | ~200 KB | Film ID-başlık eşleştirmesi |
-| `association_rules.pkl` | ~5-10 MB | Birliktelik kuralları |
-| `tfidf_matrix.npz` | ~50-100 MB | Sparse TF-IDF matrisi |
-| `metadata.parquet` | ~20 MB | Film metadata'sı |
+- **Full Stack Geliştirme & Entegrasyon**: Projenin web altyapısı, frontend ve backend geliştirmesi.
+- **Yapay Zeka & Veri Bilimi**: `ai-models` klasörü altındaki öneri sistemleri, veri analizi ve model eğitimi.
 
 ---
 
 ## 📝 Lisans
 
 Bu proje eğitim amaçlı geliştirilmiştir.
-
----
-
-## 👤 Geliştirici
-
-**MovieRecommender** - Çoklu Algoritma Film Öneri Sistemi
-
----
-
-## 🙏 Teşekkürler
-
-- Kaggle ve The Movies Dataset için Rounak Banik'e
-- mlxtend kütüphanesi için Sebastian Raschka'ya
-- Streamlit ekibine
-
