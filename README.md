@@ -106,21 +106,19 @@ MovieRecommender/
 │   │   ├── user_profile.py         # Kullanıcı profili öneri
 │   │   ├── evaluate_content.py     # Model değerlendirme
 │   │   └── models/                 # Model dosyaları
-│   ├── models/                     # ARL model dosyaları
+│   ├── models/                     # Eğitilmiş modeller (repoda hazır)
 │   │   ├── association_rules.pkl
 │   │   ├── movie_mapping.pkl
 │   │   └── item_similarity.pkl
+│   ├── data/raw/                   # Kaggle CSV'leri (gitignored, elle indirilir)
+│   ├── build_arl_model.py          # ARL modelini yeniden eğitme (CLI)
 │   ├── app/                        # Streamlit uygulamaları
 │   │   ├── Home_🎬_Recommender.py
 │   │   └── pages/
 │   └── requirements.txt
 │
-├── 📂 data/                        # Veri dosyaları
-│   ├── movies_metadata.csv
-│   ├── ratings.csv / ratings_small.csv
-│   ├── links.csv / links_small.csv
-│   ├── keywords.csv
-│   └── credits.csv
+├── 📂 data/                        # Backend seed için Kaggle CSV'leri (gitignored, elle indirilir)
+│   └── movies_metadata.csv
 │
 ├── package.json                    # Root package.json (monorepo scripts)
 ├── requirements.txt                # Python bağımlılıkları (tüm AI modelleri için)
@@ -154,7 +152,27 @@ Python'un yüklü olduğundan emin olun. Gerekli Python paketlerini ana dizinden
 pip install -r requirements.txt
 ```
 
-### 4. Veritabanını Seed Edin (Opsiyonel)
+### 4. Veri Setini İndirin
+
+Veri dosyaları boyutları nedeniyle repoda yer almaz. [The Movies Dataset](https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset)'i Kaggle'dan indirip şu konumlara yerleştirin:
+
+| Dosya | Konum | Kullanan |
+|-------|-------|----------|
+| `movies_metadata.csv` | `data/` | Backend seed (`npm run seed`) |
+| `movies_metadata.csv`, `ratings_small.csv`, `keywords.csv`, `credits.csv` | `ai-models/MovieRecommender/data/raw/` | Model eğitimi ve Streamlit analiz sayfaları |
+
+> Eğitilmiş modeller (`ai-models/MovieRecommender/models/` ve `Content-Based/models/`) repoda hazır gelir. Yalnızca API'yi çalıştırmak için veri indirmek zorunlu değildir; veri seti backend seed ve yeniden eğitim için gerekir.
+
+### 5. Ortam Değişkenlerini Ayarlayın
+
+`backend/.env` dosyası oluşturun:
+
+```bash
+JWT_SECRET=guclu-bir-gizli-anahtar
+TMDB_API_KEY=tmdb-api-anahtariniz   # https://www.themoviedb.org/settings/api
+```
+
+### 6. Veritabanını Seed Edin (Opsiyonel)
 
 Film verilerini veritabanına yüklemek için:
 
@@ -171,6 +189,8 @@ Tüm servisleri (Frontend, Backend, AI Sunucusu) ana dizinden tek bir komutla ba
 ```bash
 npm start
 ```
+
+> `start:ai` komutu Windows'taki `py` başlatıcısını kullanır. macOS/Linux'ta AI sunucusunu ayrı bir terminalde `python api_server.py` ile başlatın veya `package.json` içindeki `py` ifadesini `python3` yapın.
 
 | Servis | URL | Açıklama |
 |--------|-----|----------|
@@ -344,6 +364,27 @@ Bu proje, Kaggle'daki "The Movies Dataset" üzerinde çalışan farklı makine �
 
 ---
 
+## 🔁 Modelleri Yeniden Eğitme
+
+Veri seti `ai-models/MovieRecommender/data/raw/` altına yerleştirildikten sonra:
+
+```bash
+cd ai-models/MovieRecommender
+
+# 1) Association Rules (small: ratings_small.csv, full: ratings.csv)
+python build_arl_model.py --dataset small
+
+# 2) Item-Based CF (ARL'nin ürettiği movie_mapping.pkl'i kullanır)
+python src/recommender_itemcf.py
+
+# 3) Content-Based (TF-IDF matrisi ve metadata)
+python Content-Based/data_pipeline.py
+```
+
+Parametreler için `python build_arl_model.py --help` ve `python Content-Based/data_pipeline.py --help` çıktısına bakabilirsiniz.
+
+---
+
 ## 📚 Veri Kaynağı
 
 Bu proje Kaggle'daki **The Movies Dataset**'i kullanmaktadır:
@@ -356,7 +397,14 @@ Bu proje Kaggle'daki **The Movies Dataset**'i kullanmaktadır:
 
 ## 👥 Katkıda Bulunanlar
 
-Bu proje, farklı uzmanlık alanlarının birleşimiyle ortaya çıkmıştır:
+Bu proje, farklı uzmanlık alanlarının birleşimiyle bir ekip çalışması olarak ortaya çıkmıştır.
+
+| Katkıda Bulunan | GitHub |
+|-----------------|--------|
+| Ömer Altınova | [@omeraltinova](https://github.com/omeraltinova) |
+| Semih Bekdaş | [@semihbekdas](https://github.com/semihbekdas) |
+| Furkan Topçu | [@furkantopcuu](https://github.com/furkantopcuu) |
+| Kerem Yılmaz | [@keremy321](https://github.com/keremy321) |
 
 - **Full Stack Geliştirme & Entegrasyon**: Projenin web altyapısı, frontend ve backend geliştirmesi.
 - **Yapay Zeka & Veri Bilimi**: `ai-models` klasörü altındaki öneri sistemleri, veri analizi ve model eğitimi.
